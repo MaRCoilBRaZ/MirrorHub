@@ -53,10 +53,11 @@ jobs:
 
       - name: Smoke test (bundle starts with only its own DLLs and plugins)
         run: |
-          export PATH="$PWD/dist/uxplay/bin:/c/Windows/System32"
-          export HOME="$PWD/smoke-home" GST_REGISTRY_1_0="$PWD/smoke-home/registry.bin"
-          mkdir -p "$HOME"
-          ./dist/uxplay/bin/uxplay.exe -n SmokeTest -nh -vs fakesink -as fakesink > smoke.log 2>&1 &
+          mkdir -p smoke-home
+          # Minimal PATH for uxplay only, so no MSYS2 DLL or plugin can leak in.
+          PATH="$PWD/dist/uxplay/bin:/c/Windows/System32" HOME="$PWD/smoke-home" \
+          GST_REGISTRY_1_0="$PWD/smoke-home/registry.bin" \
+            ./dist/uxplay/bin/uxplay.exe -n SmokeTest -nh -vs fakesink -as fakesink > smoke.log 2>&1 &
           pid=$!
           sleep 15
           kill "$pid" 2>/dev/null || true
