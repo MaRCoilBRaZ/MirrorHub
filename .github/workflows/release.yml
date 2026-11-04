@@ -1,0 +1,127 @@
+# Builds the portable Windows package (MirrorHub + scrcpy + UxPlay) and, for v* tags, publishes it as a release.
+name: Build & release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SCRCPY_VERSION: v5.0.1
+  SCRCPY_SHA256: b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5
+  UXPLAY_COMMIT: b1be2bd26629f822fa1f6ebbdb0c3a2ed30aa62f   # UxPlay 1.74 (built-in mDNS, no Bonjour needed)
+
+jobs:
+  uxplay:
+    name: Build UxPlay (MSYS2 UCRT64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: git
+          pacboy: >-
+            cmake:p gcc:p ninja:p pkgconf:p libplist:p openssl:p
+            gstreamer:p gst-plugins-base:p gst-plugins-good:p gst-plugins-bad:p gst-libav:p
+
+      - name: Build
+        run: |
+          git clone https://github.com/FDH2/UxPlay.git uxplay-src
+          git -C uxplay-src checkout "$UXPLAY_COMMIT"
+          cmake -S uxplay-src -B uxplay-build -G Ninja
+          ninja -C uxplay-build
+
+      - name: Bundle exe, DLLs and GStreamer plugins
+        run: bash packaging/bundle-uxplay.sh uxplay-build/uxplay.exe dist/uxplay
+
+      - name: Licenses and source references
+        run: |
+          mkdir -p dist/uxplay/licenses
+          cp uxplay-src/LICENSE dist/uxplay/licenses/UxPlay-LICENSE.txt
+          echo "UxPlay source: https://github.com/FDH2/UxPlay/tree/$UXPLAY_COMMIT" > dist/uxplay/licenses/SOURCES.txt
+          echo "MSYS2 package sources: https://github.com/msys2/MINGW-packages (versions below)" >> dist/uxplay/licenses/SOURCES.txt
+          pacman -Q >> dist/uxplay/licenses/SOURCES.txt
+
+      - name: Smoke test (bundle starts with only its own DLLs and plugins)
+        run: |
+          export PATH="$PWD/dist/uxplay/bin:/c/Windows/System32"
+          export HOME="$PWD/smoke-home" GST_REGISTRY_1_0="$PWD/smoke-home/registry.bin"
+          mkdir -p "$HOME"
+          ./dist/uxplay/bin/uxplay.exe -n SmokeTest -nh -vs fakesink -as fakesink > smoke.log 2>&1 &
+          pid=$!
+          sleep 15
+          kill "$pid" 2>/dev/null || true
+          cat smoke.log
+          if ! grep -q "Initialized server socket" smoke.log; then echo "UxPlay did not start"; exit 1; fi
+          if grep -q "no element" smoke.log; then echo "Missing GStreamer element in bundle"; exit 1; fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uxplay
+          path: dist/uxplay
+
+  app:
+    name: Build MirrorHub and package
+    runs-on: windows-latest
+    needs: uxplay
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish (self-contained, single file)
+        run: >-
+          dotnet publish MirrorHub.csproj -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -o dist/MirrorHub
+
+      - name: Add scrcpy (checksum verified)
+        shell: pwsh
+        run: |
+          $zip = "scrcpy.zip"
+          Invoke-WebRequest "https://github.com/Genymobile/scrcpy/releases/download/$env:SCRCPY_VERSION/scrcpy-win64-$env:SCRCPY_VERSION.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:SCRCPY_SHA256) { throw "scrcpy checksum mismatch" }
+          Expand-Archive $zip scrcpy-x
+          New-Item -ItemType Directory -Force dist/MirrorHub/tools | Out-Null
+          Move-Item "scrcpy-x/scrcpy-win64-$env:SCRCPY_VERSION" dist/MirrorHub/tools/scrcpy
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: uxplay
+          path: dist/MirrorHub/tools/uxplay
+
+      - name: Add license and notices
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE dist/MirrorHub/LICENSE.txt
+          Copy-Item packaging/THIRD-PARTY-NOTICES.md dist/MirrorHub/
+          Copy-Item packaging/README-release.txt dist/MirrorHub/README.txt
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          $name = if ($env:GITHUB_REF_TYPE -eq 'tag') { "MirrorHub-$env:GITHUB_REF_NAME-win-x64" } else { "MirrorHub-dev-win-x64" }
+          Compress-Archive -Path dist/MirrorHub -DestinationPath "$name.zip"
+          "ZIP=$name.zip" >> $env:GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MirrorHub-win-x64
+          path: ${{ env.ZIP }}
+
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: ${{ env.ZIP }}
+          generate_release_notes: true
