@@ -91,6 +91,10 @@ public sealed class Settings
     public bool MinimizeToTray { get; set; } = true;
     public bool CloseToTray { get; set; } = true;
 
+    // UI: advanced settings expanded
+    public bool ShowAndroidAdvanced { get; set; }
+    public bool ShowAirPlayAdvanced { get; set; }
+
     public NotifyOptions Notify { get; set; } = new();
     public Dictionary<string, string> Hotkeys { get; set; } = HotkeyActions.All.ToDictionary(a => a.Id, a => a.Default);
 
@@ -108,7 +112,8 @@ public sealed class Settings
     public string AirPlayResolution { get; set; } = "1920x1080@60";
     public int AirPlayFps { get; set; } = 60;
     public bool AirPlayH265 { get; set; }
-    public string AirPlayVideoSink { get; set; } = "d3d12videosink";
+    // "auto" = UxPlay's default renderer, the safest choice on unknown hardware.
+    public string AirPlayVideoSink { get; set; } = "auto";
     public bool AirPlayFullscreen { get; set; }
     public bool AirPlayNoHold { get; set; } = true;
     public bool AirPlayRecord { get; set; }
@@ -136,10 +141,46 @@ public sealed class Settings
         File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    public static readonly Dictionary<string, Action<MirrorOptions>> Presets = new()
+    // ---------- quality presets (the simple view; the advanced fields stay editable) ----------
+
+    // The first preset equals the defaults of MirrorOptions.
+    public static readonly QualityPreset<MirrorOptions>[] AndroidPresets =
+    [
+        new("Balanced", "Recommended. Full resolution, 60 fps, works with every phone.",
+            o => { o.VideoCodec = "h264"; o.BitRateMbps = 8; o.MaxFps = 60; o.MaxSize = 0; o.VideoBufferMs = 0; o.AudioBufferMs = 50; },
+            o => (o.VideoCodec, o.BitRateMbps, o.MaxFps, o.MaxSize, o.VideoBufferMs, o.AudioBufferMs)),
+        new("Low latency", "For games: lower resolution (1280 px), as fast as possible.",
+            o => { o.VideoCodec = "h264"; o.BitRateMbps = 8; o.MaxFps = 60; o.MaxSize = 1280; o.VideoBufferMs = 0; o.AudioBufferMs = 40; },
+            o => (o.VideoCodec, o.BitRateMbps, o.MaxFps, o.MaxSize, o.VideoBufferMs, o.AudioBufferMs)),
+        new("Best quality", "Sharpest picture (H.265, 20 Mbps). Best over USB or fast Wi-Fi.",
+            o => { o.VideoCodec = "h265"; o.BitRateMbps = 20; o.MaxFps = 60; o.MaxSize = 0; o.VideoBufferMs = 0; o.AudioBufferMs = 50; },
+            o => (o.VideoCodec, o.BitRateMbps, o.MaxFps, o.MaxSize, o.VideoBufferMs, o.AudioBufferMs)),
+        new("Weak Wi-Fi", "Fewer stutters on a slow connection (smaller picture, 30 fps).",
+            o => { o.VideoCodec = "h265"; o.BitRateMbps = 4; o.MaxFps = 30; o.MaxSize = 1024; o.VideoBufferMs = 50; o.AudioBufferMs = 80; },
+            o => (o.VideoCodec, o.BitRateMbps, o.MaxFps, o.MaxSize, o.VideoBufferMs, o.AudioBufferMs)),
+    ];
+
+    // The first preset equals the defaults of Settings.
+    public static readonly QualityPreset<Settings>[] AirPlayPresets =
+    [
+        new("Full HD", "Recommended. 1080p at 60 fps.",
+            s => { s.AirPlayResolution = "1920x1080@60"; s.AirPlayFps = 60; s.AirPlayH265 = false; },
+            s => (s.AirPlayResolution, s.AirPlayFps, s.AirPlayH265)),
+        new("Sharper", "1440p at 60 fps, for large monitors.",
+            s => { s.AirPlayResolution = "2560x1440@60"; s.AirPlayFps = 60; s.AirPlayH265 = false; },
+            s => (s.AirPlayResolution, s.AirPlayFps, s.AirPlayH265)),
+        new("4K", "4K with H.265. Needs a recent iPhone/iPad and a fast Wi-Fi.",
+            s => { s.AirPlayResolution = "3840x2160@60"; s.AirPlayFps = 60; s.AirPlayH265 = true; },
+            s => (s.AirPlayResolution, s.AirPlayFps, s.AirPlayH265)),
+    ];
+}
+
+/// <summary>A named set of values; <see cref="Matches"/> tells whether the current values equal it.</summary>
+public sealed record QualityPreset<T>(string Name, string Description, Action<T> Apply, Func<T, object> Key)
+{
+    public bool Matches(T current, T scratch)
     {
-        ["Low latency"] = o => { o.VideoCodec = "h264"; o.BitRateMbps = 8; o.MaxFps = 60; o.MaxSize = 1280; o.VideoBufferMs = 0; o.AudioBufferMs = 40; },
-        ["High quality"] = o => { o.VideoCodec = "h265"; o.BitRateMbps = 20; o.MaxFps = 60; o.MaxSize = 0; o.VideoBufferMs = 0; o.AudioBufferMs = 50; },
-        ["Weak Wi-Fi"] = o => { o.VideoCodec = "h265"; o.BitRateMbps = 4; o.MaxFps = 30; o.MaxSize = 1024; o.VideoBufferMs = 50; o.AudioBufferMs = 80; },
-    };
+        Apply(scratch);
+        return Equals(Key(scratch), Key(current));
+    }
 }

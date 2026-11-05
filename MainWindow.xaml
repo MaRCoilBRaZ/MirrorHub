@@ -41,7 +41,7 @@
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition/>
-            <RowDefinition Height="160"/>
+            <RowDefinition Height="180"/>
         </Grid.RowDefinitions>
 
         <TabControl x:Name="Tabs">
@@ -88,14 +88,30 @@
                                 <Button Content="Output folder" Click="OpenFolder_Click"/>
                             </WrapPanel>
 
-                            <TextBlock Text="Settings for" Style="{StaticResource SubHeader}"/>
-                            <DockPanel>
-                                <Button DockPanel.Dock="Right" Content="Delete profile" Click="DeleteProfile_Click" Margin="6,0,0,6"/>
-                                <Button DockPanel.Dock="Right" Content="New profile for the selected device" Click="CreateProfile_Click" Margin="6,0,0,6"/>
-                                <ComboBox x:Name="ProfileBox" DisplayMemberPath="Label" SelectionChanged="ProfileBox_SelectionChanged"/>
-                            </DockPanel>
-
                             <StackPanel x:Name="MirrorOptionsPanel">
+                                <TextBlock x:Name="ProfileNote" Foreground="#1a5fb4" Margin="0,4,0,0" Visibility="Collapsed"/>
+
+                                <TextBlock Text="Quality" Style="{StaticResource SubHeader}"/>
+                                <StackPanel x:Name="AndroidQuality"/>
+
+                                <TextBlock Text="Options" Style="{StaticResource SubHeader}"/>
+                                <WrapPanel>
+                                    <CheckBox Content="Phone sound on the PC" IsChecked="{Binding Audio}"/>
+                                    <CheckBox Content="Control the phone with mouse and keyboard" IsChecked="{Binding Control}"/>
+                                    <CheckBox Content="Record (.mkv)" IsChecked="{Binding Record}"/>
+                                    <CheckBox Content="Start mirroring when the phone connects" IsChecked="{Binding AutoMirror}"/>
+                                </WrapPanel>
+
+                                <Expander x:Name="AndroidAdvanced" Header="Advanced settings" Margin="0,8,0,0"
+                                          Expanded="Advanced_Toggled" Collapsed="Advanced_Toggled">
+                                <StackPanel Margin="0,6,0,0">
+                                <TextBlock Text="Settings for" Style="{StaticResource SubHeader}"/>
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Delete profile" Click="DeleteProfile_Click" Margin="6,0,0,6"/>
+                                    <Button DockPanel.Dock="Right" Content="New profile for the selected device" Click="CreateProfile_Click" Margin="6,0,0,6"/>
+                                    <ComboBox x:Name="ProfileBox" DisplayMemberPath="Label" SelectionChanged="ProfileBox_SelectionChanged"/>
+                                </DockPanel>
+
                                 <Grid Margin="0,6,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -108,9 +124,6 @@
                                         <RowDefinition/><RowDefinition/><RowDefinition/>
                                         <RowDefinition/><RowDefinition/><RowDefinition/>
                                     </Grid.RowDefinitions>
-
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Preset" Style="{StaticResource Lbl}"/>
-                                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="PresetBox" SelectionChanged="Preset_Changed"/>
 
                                     <TextBlock Grid.Row="1" Grid.Column="0" Text="Video codec" Style="{StaticResource Lbl}"/>
                                     <ComboBox Grid.Row="1" Grid.Column="1" x:Name="VideoCodecBox" SelectedItem="{Binding VideoCodec}"/>
@@ -137,21 +150,22 @@
                                 </Grid>
 
                                 <WrapPanel Margin="0,8,0,0">
-                                    <CheckBox Content="Auto-mirror on connect" IsChecked="{Binding AutoMirror}" FontWeight="SemiBold"/>
-                                    <CheckBox Content="Audio" IsChecked="{Binding Audio}"/>
-                                    <CheckBox Content="Mouse/keyboard control" IsChecked="{Binding Control}"/>
                                     <CheckBox Content="Keep phone awake" IsChecked="{Binding StayAwake}"/>
                                     <CheckBox Content="Turn phone screen off" IsChecked="{Binding TurnScreenOff}"/>
                                     <CheckBox Content="Always on top" IsChecked="{Binding AlwaysOnTop}"/>
                                     <CheckBox Content="Fullscreen" IsChecked="{Binding Fullscreen}"/>
                                     <CheckBox Content="Borderless" IsChecked="{Binding Borderless}"/>
-                                    <CheckBox Content="Record (.mkv)" IsChecked="{Binding Record}"/>
                                     <CheckBox Content="Auto-reconnect" IsChecked="{Binding AutoReconnect}"/>
                                 </WrapPanel>
+
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="A device with a profile uses its own settings; all others use the defaults. Changing a value here turns the quality into &quot;Custom&quot;."/>
+                                </StackPanel>
+                                </Expander>
                             </StackPanel>
 
                             <TextBlock Style="{StaticResource Hint}"
-                                       Text="A device with a profile uses its own settings; all others use the defaults. Changes apply from the next mirroring start (including automatic reconnections). Shortcuts in the mirror window: Alt+F fullscreen · Alt+H home · Alt+B back · Alt+S recent apps · Alt+R rotate · Alt+O phone screen off · Alt+Shift+O on."/>
+                                       Text="Changes apply from the next mirroring start (including automatic reconnections). Shortcuts in the mirror window: Alt+F fullscreen · Alt+H home · Alt+B back · Alt+S recent apps · Alt+R rotate · Alt+O phone screen off · Alt+Shift+O on."/>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -160,17 +174,44 @@
             <!-- ===================== iPhone / iPad ===================== -->
             <TabItem Header="iPhone / iPad">
                 <ScrollViewer Margin="8" VerticalScrollBarVisibility="Auto">
-                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                    <StackPanel x:Name="AirPanel" MaxWidth="760" HorizontalAlignment="Left">
                         <TextBlock Text="AirPlay receiver" Style="{StaticResource Header}"/>
-                        <TextBlock x:Name="AirStatus" Text="Stopped" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="AirStatus" Text="Stopped" FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel>
                             <Button Content="▶ Start receiver" FontWeight="SemiBold" Click="AirStart_Click"/>
                             <Button Content="■ Stop" Click="AirStop_Click"/>
-                            <Button Content="Set up firewall" Click="Firewall_Click"/>
                             <Button Content="Output folder" Click="OpenFolder_Click"/>
                         </WrapPanel>
 
-                        <Grid Margin="0,10,0,0">
+                        <Border x:Name="AirProblem" Visibility="Collapsed" Background="#FFF4E5" BorderBrush="#E8A33D"
+                                BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,4,0,6">
+                            <StackPanel>
+                                <TextBlock x:Name="AirProblemText" TextWrapping="Wrap"/>
+                                <WrapPanel x:Name="AirProblemActions" Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,0"
+                                   Text="On the iPhone/iPad: Control Center → Screen Mirroring → pick the name below. PC and iPhone must be on the same Wi-Fi."/>
+
+                        <DockPanel Margin="0,10,0,0">
+                            <TextBlock Text="Name shown on the iPhone" Style="{StaticResource Lbl}"/>
+                            <TextBox Text="{Binding AirPlayName}" Width="240" HorizontalAlignment="Left"/>
+                        </DockPanel>
+
+                        <TextBlock Text="Quality" Style="{StaticResource SubHeader}"/>
+                        <StackPanel x:Name="AirQuality"/>
+
+                        <TextBlock Text="Options" Style="{StaticResource SubHeader}"/>
+                        <WrapPanel>
+                            <CheckBox Content="Fullscreen" IsChecked="{Binding AirPlayFullscreen}"/>
+                            <CheckBox Content="Record (.mp4)" IsChecked="{Binding AirPlayRecord}"/>
+                        </WrapPanel>
+
+                        <Expander x:Name="AirAdvanced" Header="Advanced settings" Margin="0,8,0,0"
+                                  Expanded="Advanced_Toggled" Collapsed="Advanced_Toggled">
+                        <StackPanel Margin="0,6,0,0">
+                        <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition/>
@@ -182,29 +223,31 @@
                                 <RowDefinition/><RowDefinition/><RowDefinition/>
                             </Grid.RowDefinitions>
 
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Name shown on the phone" Style="{StaticResource Lbl}"/>
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AirPlayName}"/>
-                            <TextBlock Grid.Row="0" Grid.Column="3" Text="PIN (4 digits, empty = none)" Style="{StaticResource Lbl}"/>
-                            <TextBox Grid.Row="0" Grid.Column="4" Text="{Binding AirPlayPin}" MaxLength="4"/>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Resolution" Style="{StaticResource Lbl}"/>
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="AirResBox" IsEditable="True" Text="{Binding AirPlayResolution}"/>
+                            <TextBlock Grid.Row="0" Grid.Column="3" Text="Max FPS" Style="{StaticResource Lbl}"/>
+                            <TextBox Grid.Row="0" Grid.Column="4" Text="{Binding AirPlayFps}"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Resolution" Style="{StaticResource Lbl}"/>
-                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="AirResBox" IsEditable="True" Text="{Binding AirPlayResolution}"/>
-                            <TextBlock Grid.Row="1" Grid.Column="3" Text="Max FPS" Style="{StaticResource Lbl}"/>
-                            <TextBox Grid.Row="1" Grid.Column="4" Text="{Binding AirPlayFps}"/>
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Renderer" Style="{StaticResource Lbl}"/>
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="AirSinkBox" SelectedItem="{Binding AirPlayVideoSink}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Renderer" Style="{StaticResource Lbl}"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="AirSinkBox" SelectedItem="{Binding AirPlayVideoSink}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="3" Text="PIN (4 digits, empty = none)" Style="{StaticResource Lbl}"/>
+                            <TextBox Grid.Row="1" Grid.Column="4" Text="{Binding AirPlayPin}" MaxLength="4"/>
                         </Grid>
 
                         <WrapPanel Margin="0,8,0,0">
-                            <CheckBox Content="H.265 / 4K" IsChecked="{Binding AirPlayH265}"/>
-                            <CheckBox Content="Fullscreen" IsChecked="{Binding AirPlayFullscreen}"/>
+                            <CheckBox Content="H.265" IsChecked="{Binding AirPlayH265}"/>
                             <CheckBox Content="New device replaces the current one" IsChecked="{Binding AirPlayNoHold}"/>
-                            <CheckBox Content="Record (.mp4)" IsChecked="{Binding AirPlayRecord}"/>
+                        </WrapPanel>
+                        <WrapPanel>
+                            <Button Content="Set up firewall again" Click="Firewall_Click"/>
                         </WrapPanel>
 
                         <TextBlock Style="{StaticResource Hint}"
-                                   Text="On iPhone/iPad: Control Center → Screen Mirroring → pick the name set above. PC and iPhone must be on the same Wi-Fi, set as a Private network in Windows (no guest networks with client isolation). On first use click &quot;Set up firewall&quot; (asks for administrator confirmation). Changes apply from the next receiver start."/>
+                                   Text="Renderer &quot;auto&quot; works everywhere; d3d12videosink can be smoother on recent graphics cards. The network must be Private in Windows (no guest networks with client isolation). Changing a value here turns the quality into &quot;Custom&quot;."/>
+                        </StackPanel>
+                        </Expander>
+
+                        <TextBlock Style="{StaticResource Hint}" Text="Changes apply from the next receiver start."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -272,8 +315,14 @@
         </TabControl>
 
         <!-- Log -->
-        <TextBox Grid.Row="1" x:Name="LogBox" Margin="0,10,0,0"
-                 IsReadOnly="True" FontFamily="Consolas" FontSize="12"
-                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+        <DockPanel Grid.Row="1" Margin="0,10,0,0">
+            <DockPanel DockPanel.Dock="Top">
+                <Button DockPanel.Dock="Right" Content="Copy log" Click="CopyLog_Click" Padding="8,1" Margin="0,0,0,4"/>
+                <TextBlock Text="Log (if something does not work, click &quot;Copy log&quot; and send it)" Foreground="Gray" VerticalAlignment="Center"/>
+            </DockPanel>
+            <TextBox x:Name="LogBox"
+                     IsReadOnly="True" FontFamily="Consolas" FontSize="12"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+        </DockPanel>
     </Grid>
 </Window>

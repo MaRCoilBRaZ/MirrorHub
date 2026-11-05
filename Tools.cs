@@ -26,6 +26,15 @@ static class Tools
     /// <summary>True when UxPlay comes from the portable "tools" folder (with its own GStreamer).</summary>
     public static bool UxPlayIsBundled => UxPlay != null && UxPlay.StartsWith(BundleDir, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Why scrcpy/uxplay are missing, in words a non-technical user can act on.</summary>
+    public static string MissingToolsHint =>
+        AppContext.BaseDirectory.StartsWith(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase)
+            ? "MirrorHub was opened directly from inside the zip file, so it cannot find its tools.\n\n" +
+              "Close it, right-click the zip → \"Extract All…\", then open MirrorHub.exe from the extracted folder."
+            : "The \"tools\" folder was not found next to MirrorHub.exe.\n\n" +
+              "Keep the whole extracted folder together (MirrorHub.exe and the \"tools\" folder): " +
+              "extract the zip again and open MirrorHub.exe from there.";
+
     public static string SafeName(string s) =>
         string.Concat(s.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c == ' ' ? '_' : c));
 

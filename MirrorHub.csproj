@@ -9,6 +9,7 @@
     <!-- WinForms only for the notification-area icon (NotifyIcon). -->
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>0.1.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

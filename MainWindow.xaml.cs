@@ -42,11 +42,11 @@ public partial class MainWindow : Window
         AudioCodecBox.ItemsSource = new[] { "opus", "aac", "flac", "raw" };
         HwDecBox.ItemsSource = new[] { "auto", "d3d11va", "disabled" };
         RenderFitBox.ItemsSource = new[] { "letterbox", "stretched", "unscaled" };
-        PresetBox.ItemsSource = Settings.Presets.Keys;
         AirResBox.ItemsSource = new[] { "1280x720@60", "1920x1080@60", "2560x1440@60", "3840x2160@60" };
-        AirSinkBox.ItemsSource = new[] { "d3d12videosink", "d3d11videosink", "auto" };
+        AirSinkBox.ItemsSource = new[] { "auto", "d3d11videosink", "d3d12videosink" };
         DataContext = _settings;
         MinimizedModeBox.SelectedIndex = (int)_settings.MinimizedMode;
+        BuildQualityChoices();
         RebuildProfiles(null);
 
         // The window handle exists even while the window is hidden in the notification area.
@@ -66,13 +66,16 @@ public partial class MainWindow : Window
         Log(Tools.UxPlay != null
             ? $"uxplay: {Tools.UxPlay}"
             : "uxplay not found: iPhone/iPad mirroring unavailable.");
+        if (Tools.Scrcpy == null && Tools.UxPlay == null)
+            Dispatcher.BeginInvoke(() => MessageBox.Show(this, Tools.MissingToolsHint, "MirrorHub",
+                MessageBoxButton.OK, MessageBoxImage.Warning));
 
         _poll.Tick += async (_, _) => await RefreshDevices();
         Dispatcher.BeginInvoke(async () =>
         {
             await RefreshDevices();
             _poll.Start();
-            if (_settings.AirPlayAutoStart) await StartAirPlay();
+            if (_settings.AirPlayAutoStart) await StartAirPlay(interactive: false);
         });
     }
 
@@ -138,10 +141,26 @@ public partial class MainWindow : Window
 
     void Log(string msg) => Dispatcher.BeginInvoke(() =>
     {
+        var line = $"{DateTime.Now:HH:mm:ss}  {msg}\n";
         if (LogBox.Text.Length > 100_000) LogBox.Text = LogBox.Text[^50_000..];
-        LogBox.AppendText($"{DateTime.Now:HH:mm:ss}  {msg}\n");
+        LogBox.AppendText(line);
         LogBox.ScrollToEnd();
+        LogFile.Append(line);
     });
+
+    void CopyLog()
+    {
+        var header = $"MirrorHub {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} ·{Environment.OSVersion.VersionString}\n" +
+                     $"Folder: {AppContext.BaseDirectory}\n";
+        try
+        {
+            Clipboard.SetText(header + LogBox.Text);
+            Log("Log copied: paste it in a message (Ctrl+V).");
+        }
+        catch (Exception ex) { Log("Could not copy the log: " + ex.Message); }
+    }
+
+    void CopyLog_Click(object sender, RoutedEventArgs e) => CopyLog();
 
     /// <summary>The selected device if online, otherwise the first online one.</summary>
     Device? TargetDevice()
@@ -339,8 +358,11 @@ public partial class MainWindow : Window
 
     void ProfileBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (ProfileBox.SelectedItem is ProfileItem item)
-            MirrorOptionsPanel.DataContext = _settings.OptionsFor(item.Key);
+        if (ProfileBox.SelectedItem is not ProfileItem item) return;
+        MirrorOptionsPanel.DataContext = _settings.OptionsFor(item.Key);
+        ProfileNote.Text = item.Key != null ? $"These are the settings of the profile \"{_settings.Profiles[item.Key].Name}\"." : "";
+        ProfileNote.Visibility = item.Key != null ? Visibility.Visible : Visibility.Collapsed;
+        UpdateQualityChoices();
     }
 
     async void CreateProfile_Click(object sender, RoutedEventArgs e)
@@ -368,16 +390,6 @@ public partial class MainWindow : Window
         _settings.Save();
         RebuildProfiles(null);
         _ = RefreshDevices();
-    }
-
-    void Preset_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (PresetBox.SelectedItem is not string name || MirrorOptionsPanel.DataContext is not MirrorOptions o) return;
-        Settings.Presets[name](o);
-        MirrorOptionsPanel.DataContext = null;     // options have no change notification: rebind
-        MirrorOptionsPanel.DataContext = o;
-        Log($"Preset applied: {name}");
-        Dispatcher.BeginInvoke(() => PresetBox.SelectedIndex = -1);   // allow re-applying the same preset
     }
 
     // ---------- Android tools ----------
@@ -588,75 +600,5 @@ public partial class MainWindow : Window
         if (_sessions.TryGetValue(d.Serial, out var s)) s.Stop();
         Log((await Adb.RunAsync("disconnect", d.Serial)).Out);
         await RefreshDevices();
-    }
-
-    // ---------- iPhone / iPad (AirPlay) ----------
-
-    async Task StartAirPlay()
-    {
-        if (Tools.UxPlay == null) { Log("uxplay is not installed."); return; }
-        if (_airplay != null) { Log("AirPlay receiver already running."); return; }
-        if (_settings.AirPlayPin.Length > 0 && !UxPlay.IsValidPin(_settings.AirPlayPin))
-        {
-            Log("Invalid PIN: use 4 digits (0001-9999) or leave it empty.");
-            return;
-        }
-
-        try { _settings.Save(); } catch { }
-        var net = await UxPlay.NetworkCategoriesAsync();
-        Log("Networks: " + net);
-        if (net.Contains("Public"))
-            Log("Warning: a network is \"Public\". Set it to Private (Settings → Network → Properties), otherwise the iPhone will not see the PC.");
-
-        var name = _settings.AirPlayName;
-        var record = _settings.AirPlayRecord;
-        _airplay = UxPlay.Create(_settings);
-        _airplay.Log += m =>
-        {
-            Log("[AirPlay] " + m);
-            OnAirPlayLog(m);
-        };
-        _airplay.Ended += unexpected => Dispatcher.Invoke(() =>
-        {
-            _airplay = null;
-            AirStatus.Text = unexpected ? "Interrupted (see log)" : "Stopped";
-            if (unexpected) Notify(_settings.Notify.MirrorEvents, "AirPlay", "The AirPlay receiver stopped unexpectedly.");
-            if (record) Notify(_settings.Notify.FileSaved, "AirPlay recording saved", _settings.OutputDir, OpenOutputFolder);
-        });
-        AirStatus.Text = $"Listening as \"{name}\"";
-        _airplay.Start();
-    }
-
-    void OnAirPlayLog(string line)
-    {
-        var m = Regex.Match(line, @"connection request from (.+?) \((.+?)\)");
-        if (m.Success)
-            Notify(_settings.Notify.AirPlayClient, "iPhone / iPad connected", $"{m.Groups[1].Value} ({m.Groups[2].Value})");
-        else if (line.Contains("lost connection with client"))
-            Notify(_settings.Notify.AirPlayClient, "AirPlay", "Connection to the iPhone / iPad lost.");
-    }
-
-    void ToggleAirPlay()
-    {
-        if (_airplay != null) _airplay.Stop();
-        else _ = StartAirPlay();
-    }
-
-    async void AirStart_Click(object sender, RoutedEventArgs e) => await StartAirPlay();
-
-    void AirStop_Click(object sender, RoutedEventArgs e) => _airplay?.Stop();
-
-    void Firewall_Click(object sender, RoutedEventArgs e)
-    {
-        if (Tools.UxPlay == null) { Log("uxplay is not installed."); return; }
-        try
-        {
-            UxPlay.OpenFirewall();
-            Log("Firewall rule \"MirrorHub AirPlay (UxPlay)\" requested (Private networks only).");
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            Log("Firewall setup cancelled.");
-        }
     }
 }

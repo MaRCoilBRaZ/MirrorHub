@@ -10,7 +10,8 @@ MirrorHub is a Windows desktop app that brings together two excellent open-sourc
 ## Features
 
 **Android**
-- Mirroring over USB or Wi-Fi, H.264 / H.265 / AV1, adjustable bitrate, FPS and resolution, hardware decoding
+- Mirroring over USB or Wi-Fi, H.264 / H.265 / AV1, hardware decoding
+- Simple **quality presets** (Balanced, Low latency, Best quality, Weak Wi-Fi); bitrate, FPS, resolution and buffers under *Advanced settings*
 - Audio forwarding (Android 11+) and mouse/keyboard control
 - Wireless setup: pair with a **QR code** or a 6-digit code (Android 11+), or switch a USB device to Wi-Fi in one click
 - **Device profiles**: different settings per phone, with optional **auto-mirror on connect**
@@ -21,14 +22,16 @@ MirrorHub is a Windows desktop app that brings together two excellent open-sourc
 
 **iPhone / iPad**
 - AirPlay screen mirroring receiver with audio, up to 4K (H.265)
-- Optional PIN, custom name, resolution/FPS, D3D12/D3D11 rendering, `.mp4` recording
-- One-click firewall setup (Private networks only)
+- Quality presets (Full HD, 1440p, 4K), optional PIN, custom name, D3D12/D3D11 rendering, `.mp4` recording
+- Checks before starting: if the network is Public or the firewall blocks the receiver, it offers to fix it (one administrator prompt)
+- Clear status and error messages; falls back to the automatic renderer if the chosen one does not work on the PC
 
 **App**
 - Notification-area icon with a right-click menu to control everything
 - Start with Windows, start minimized, close to tray, single instance
 - Notifications you can turn on/off per event
 - **Customizable global keyboard shortcuts**
+- **Copy log** button; the log is also saved to `%AppData%\MirrorHub\mirrorhub.log`
 
 ## Download
 
@@ -46,7 +49,7 @@ Everything is included (scrcpy, adb, UxPlay, GStreamer): nothing to install. Win
 
 **iPhone / iPad**
 1. PC and iPhone on the same Wi-Fi network, set as a **Private** network in Windows.
-2. Tab **iPhone / iPad** → **Set up firewall** (once) → **▶ Start receiver**.
+2. Tab **iPhone / iPad** → **▶ Start receiver**. The first time, accept the offer to set up the network/firewall (administrator prompt).
 3. On the iPhone: **Control Center → Screen Mirroring → MirrorHub**.
 
 Shortcuts inside the Android mirror window come from scrcpy, e.g. `Alt+F` fullscreen, `Alt+H` home, `Alt+B` back, `Alt+O` turn the phone screen off.
@@ -84,9 +87,9 @@ The [release workflow](.github/workflows/release.yml) does all of this on every 
 |---|---|
 | `MainWindow*.cs`, `*.xaml` | UI (WPF): Android, iPhone/iPad and Settings tabs, tray icon, hotkeys |
 | `Scrcpy.cs`, `Adb.cs` | Android: scrcpy arguments, adb commands, app and camera listing |
-| `UxPlay.cs` | iPhone/iPad: UxPlay arguments, environment, firewall |
+| `UxPlay.cs` | iPhone/iPad: UxPlay arguments, environment, network/firewall check and fix |
 | `WatchedProcess.cs` | Runs scrcpy/UxPlay with a watchdog (restart with exponential backoff) |
-| `Settings.cs` | Settings, device profiles, presets (`%AppData%\MirrorHub\settings.json`) |
+| `Settings.cs` | Settings, device profiles, quality presets (`%AppData%\MirrorHub\settings.json`) |
 | `packaging/` | UxPlay bundling script, release readme, third-party notices |
 
 ## License
