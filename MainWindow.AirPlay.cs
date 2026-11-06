@@ -170,6 +170,8 @@ public partial class MainWindow
             ShowAirProblem("The PIN (Advanced settings) must be 4 digits, 0001-9999, or empty for no PIN.");
             return;
         }
+        if (!audioOnly && _settings.AirPlayFps > UxPlay.MaxFps)
+            Log($"AirPlay: Max FPS {_settings.AirPlayFps} is more than iPhones send when mirroring, using {UxPlay.MaxFps}.");
 
         SaveSettings();
         _airBusy = true;

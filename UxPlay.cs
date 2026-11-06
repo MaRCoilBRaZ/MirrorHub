@@ -59,6 +59,8 @@ static class UxPlay
     /// <summary>UxPlay prints this once it is listening.</summary>
     public const string ReadyLine = "Initialized server socket";
 
+    public const int MaxFps = 60;
+
     public static bool IsValidPin(string? pin) => pin != null && Regex.IsMatch(pin, @"^\d{4}$") && pin != "0000";
 
     static IEnumerable<string> Args(Settings s, int slot, bool audioOnly)
@@ -76,7 +78,8 @@ static class UxPlay
             yield break;
         }
         yield return "-s"; yield return s.AirPlayResolution;
-        yield return "-fps"; yield return s.AirPlayFps.ToString();
+        // AirPlay screen mirroring goes up to 60 fps: with a higher maxFPS the iPhone ignores the receiver.
+        yield return "-fps"; yield return Math.Clamp(s.AirPlayFps, 1, MaxFps).ToString();
         if (s.AirPlayH265) yield return "-h265";
         if (s.AirPlayVideoSink != "auto") { yield return "-vs"; yield return s.AirPlayVideoSink; }
         if (s.AirPlayFullscreen) yield return "-fs";
