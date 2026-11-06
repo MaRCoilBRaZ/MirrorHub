@@ -97,6 +97,13 @@ static class Adb
         return rc == 0 && o.Length > 0 && !o.Contains(' ') ? o : null;
     }
 
+    /// <summary>Android API level (30 = Android 11, 33 = Android 13), or null if unknown.</summary>
+    public static async Task<int?> SdkAsync(string serial)
+    {
+        var (rc, o) = await RunAsync("-s", serial, "shell", "getprop", "ro.build.version.sdk");
+        return rc == 0 && int.TryParse(o.Trim(), out var sdk) ? sdk : null;
+    }
+
     public static async Task<List<MdnsService>> MdnsServicesAsync()
     {
         var (_, o) = await RunAsync("mdns", "services");

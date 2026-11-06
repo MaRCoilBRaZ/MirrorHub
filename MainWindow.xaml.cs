@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     readonly Dictionary<string, WatchedProcess> _sessions = new();   // adb serial -> screen mirror or audio only
     readonly HashSet<string> _audioOnly = new();                      // serials in _sessions that are audio only
     readonly Dictionary<string, string> _hwIds = new();              // adb serial -> hardware id
+    readonly Dictionary<string, int> _sdks = new();                  // adb serial -> Android API level
     readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
     readonly GlobalHotkeys _hotkeys;
     List<Device> _devices = [];
@@ -211,6 +212,7 @@ public partial class MainWindow : Window
         if (d.State != "device") return null;
         id = await Adb.HardwareIdAsync(d.Serial);
         if (id != null) _hwIds[d.Serial] = id;
+        if (await Adb.SdkAsync(d.Serial) is { } sdk) _sdks[d.Serial] = sdk;
         return id;
     }
 
@@ -287,6 +289,7 @@ public partial class MainWindow : Window
         Log($"Disconnected: {d.Display}");
         Notify(_settings.Notify.DeviceDisconnected, "Phone disconnected", d.Display);
         _hwIds.Remove(d.Serial);
+        _sdks.Remove(d.Serial);
     }
 
     void AutoMirrorIfEnabled(Device d)
@@ -325,6 +328,20 @@ public partial class MainWindow : Window
 
         try { _settings.Save(); } catch { }
         var options = _settings.OptionsFor(CachedHwId(d.Serial));
+        // Sound on both needs Android 13+. On older devices the option means "leave the sound on the device".
+        if (options.AudioOnPhoneToo && _sdks.TryGetValue(d.Serial, out var sdk) && sdk < 33)
+        {
+            if (audioOnly)
+            {
+                Log($"{d.Model}: Android older than 13 can't play sound on both, and \"Also keep the sound on the phone\" " +
+                    "is on, so the sound stays on the device. Turn that option off to hear it on the PC.");
+                return false;
+            }
+            options = options.Clone();
+            options.Audio = false;
+            Log($"{d.Model}: Android older than 13 can't play sound on both, so the sound stays on the device " +
+                "(\"Also keep the sound on the phone\" is on).");
+        }
         var session = audioOnly ? Scrcpy.CreateAudioOnly(d, options) : Scrcpy.Create(d, options, _settings.OutputDir, startApp);
         session.Log += m => Log($"[{d.Model}] {m}");
         session.Restarting += n =>
