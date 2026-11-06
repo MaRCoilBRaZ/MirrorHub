@@ -14,6 +14,7 @@ MirrorHub is a Windows desktop app that brings together two excellent open-sourc
 - Simple **quality presets** (Balanced, Low latency, Best quality, Weak Wi-Fi); bitrate, FPS, resolution and buffers under *Advanced settings*
 - Audio forwarding (Android 11+) and mouse/keyboard control
 - **Audio only** mode (Android 11+): the phone's sound on the PC with no video and no window, very light, to keep on in the background (e.g. while gaming with headphones)
+- **Sound on both** (Android 13+): keep the sound on the phone too while it also plays on the PC. On older Android versions the option leaves the sound on the device
 - Wireless setup: pair with a **QR code** or a 6-digit code (Android 11+), or switch a USB device to Wi-Fi in one click
 - **Device profiles**: different settings per phone, with optional **auto-mirror on connect**
 - Auto-reconnect with backoff if the connection drops
