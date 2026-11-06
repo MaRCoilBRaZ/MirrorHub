@@ -83,6 +83,8 @@
                             <TextBlock Text="Mirroring" Style="{StaticResource Header}"/>
                             <WrapPanel>
                                 <Button Content="▶ Start mirroring" FontWeight="SemiBold" Click="Start_Click"/>
+                                <Button Content="♪ Audio only" Click="AudioOnly_Click"
+                                        ToolTip="Phone sound on the PC, no video and no window: very light, can stay on in the background (e.g. while gaming). Android 11+."/>
                                 <Button Content="■ Stop" Click="Stop_Click"/>
                                 <Button Content="Screenshot" Click="Screenshot_Click"/>
                                 <Button Content="Output folder" Click="OpenFolder_Click"/>

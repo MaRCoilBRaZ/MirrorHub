@@ -13,6 +13,7 @@ MirrorHub is a Windows desktop app that brings together two excellent open-sourc
 - Mirroring over USB or Wi-Fi, H.264 / H.265 / AV1, hardware decoding
 - Simple **quality presets** (Balanced, Low latency, Best quality, Weak Wi-Fi); bitrate, FPS, resolution and buffers under *Advanced settings*
 - Audio forwarding (Android 11+) and mouse/keyboard control
+- **Audio only** mode (Android 11+): the phone's sound on the PC with no video and no window, very light, to keep on in the background (e.g. while gaming with headphones)
 - Wireless setup: pair with a **QR code** or a 6-digit code (Android 11+), or switch a USB device to Wi-Fi in one click
 - **Device profiles**: different settings per phone, with optional **auto-mirror on connect**
 - Auto-reconnect with backoff if the connection drops
@@ -32,6 +33,7 @@ MirrorHub is a Windows desktop app that brings together two excellent open-sourc
 - Notifications you can turn on/off per event
 - **Customizable global keyboard shortcuts**
 - **Copy log** button; the log is also saved to `%AppData%\MirrorHub\mirrorhub.log`
+- Leaves nothing running on exit: scrcpy, UxPlay and adb end together with MirrorHub, even if it is closed from Task Manager
 
 ## Download
 
@@ -89,6 +91,7 @@ The [release workflow](.github/workflows/release.yml) does all of this on every 
 | `Scrcpy.cs`, `Adb.cs` | Android: scrcpy arguments, adb commands, app and camera listing |
 | `UxPlay.cs` | iPhone/iPad: UxPlay arguments, environment, network/firewall check and fix |
 | `WatchedProcess.cs` | Runs scrcpy/UxPlay with a watchdog (restart with exponential backoff) |
+| `ChildProcesses.cs` | Job object that ends every started tool (and the adb server) when MirrorHub exits |
 | `Settings.cs` | Settings, device profiles, quality presets (`%AppData%\MirrorHub\settings.json`) |
 | `packaging/` | UxPlay bundling script, release readme, third-party notices |
 

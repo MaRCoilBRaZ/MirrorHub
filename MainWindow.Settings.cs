@@ -70,6 +70,7 @@ public partial class MainWindow
     Action HotkeyAction(string id) => id switch
     {
         HotkeyActions.ToggleMirror => () => ToggleMirror(),
+        HotkeyActions.ToggleAudioOnly => () => ToggleAudioOnly(),
         HotkeyActions.ToggleAirPlay => ToggleAirPlay,
         HotkeyActions.Screenshot => () => _ = TakeScreenshot(),
         HotkeyActions.ToggleCamera => () => Camera.Toggle(),

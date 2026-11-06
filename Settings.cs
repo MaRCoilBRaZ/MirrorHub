@@ -67,6 +67,7 @@ public sealed class CameraOptions
 public static class HotkeyActions
 {
     public const string ToggleMirror = "ToggleMirror";
+    public const string ToggleAudioOnly = "ToggleAudioOnly";
     public const string ToggleAirPlay = "ToggleAirPlay";
     public const string Screenshot = "Screenshot";
     public const string ToggleCamera = "ToggleCamera";
@@ -75,6 +76,7 @@ public static class HotkeyActions
     public static readonly (string Id, string Label, string Default)[] All =
     [
         (ToggleMirror, "Start / stop Android mirroring", "Ctrl+Alt+M"),
+        (ToggleAudioOnly, "Start / stop Android audio only", "Ctrl+Alt+P"),
         (ToggleAirPlay, "Start / stop AirPlay receiver", "Ctrl+Alt+A"),
         (Screenshot, "Android screenshot", "Ctrl+Alt+S"),
         (ToggleCamera, "Start / stop camera", "Ctrl+Alt+C"),
@@ -149,7 +151,7 @@ public sealed class Settings
         new("Balanced", "Recommended. Full resolution, 60 fps, works with every phone.",
             o => { o.VideoCodec = "h264"; o.BitRateMbps = 8; o.MaxFps = 60; o.MaxSize = 0; o.VideoBufferMs = 0; o.AudioBufferMs = 50; },
             o => (o.VideoCodec, o.BitRateMbps, o.MaxFps, o.MaxSize, o.VideoBufferMs, o.AudioBufferMs)),
-        new("Low latency", "For games: lower resolution (1280 px), as fast as possible.",
+        new("Low latency", "Less input lag, for games: lower resolution (1280 px). A USB cable lags less than Wi-Fi.",
             o => { o.VideoCodec = "h264"; o.BitRateMbps = 8; o.MaxFps = 60; o.MaxSize = 1280; o.VideoBufferMs = 0; o.AudioBufferMs = 40; },
             o => (o.VideoCodec, o.BitRateMbps, o.MaxFps, o.MaxSize, o.VideoBufferMs, o.AudioBufferMs)),
         new("Best quality", "Sharpest picture (H.265, 20 Mbps). Best over USB or fast Wi-Fi.",

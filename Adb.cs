@@ -33,6 +33,7 @@ static class ProcessRunner
         Process p;
         try { p = Process.Start(psi)!; }
         catch (Win32Exception ex) { return (-1, $"{Path.GetFileName(exe)} could not be started: {ex.Message}"); }
+        ChildProcesses.Track(p);
 
         using (p)
         {
@@ -57,6 +58,21 @@ static class Adb
 
     public static Task<(int Code, string Out)> RunAsync(int timeoutMs, params string[] args) =>
         ProcessRunner.RunAsync(Tools.Adb, args, timeoutMs);
+
+    /// <summary>
+    /// On exit: stops the background adb server if it is MirrorHub's own copy, so no adb.exe keeps
+    /// the folder locked. An adb installed elsewhere (e.g. Android Studio's) is left alone.
+    /// </summary>
+    public static void StopBundledServer()
+    {
+        if (!Tools.Adb.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)) return;
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo(Tools.Adb, "kill-server") { UseShellExecute = false, CreateNoWindow = true });
+            p?.WaitForExit(3000);
+        }
+        catch { }
+    }
 
     public static async Task<List<Device>> DevicesAsync()
     {
@@ -125,6 +141,7 @@ static class Adb
         foreach (var a in new[] { "-s", serial, "exec-out", "screencap", "-p" }) psi.ArgumentList.Add(a);
 
         using var p = Process.Start(psi)!;
+        ChildProcesses.Track(p);
         await using (var fs = File.Create(file))
             await p.StandardOutput.BaseStream.CopyToAsync(fs);
         await p.WaitForExitAsync();

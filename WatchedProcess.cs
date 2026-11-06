@@ -66,6 +66,7 @@ public sealed class WatchedProcess(
             Ended?.Invoke(true);
             return;
         }
+        ChildProcesses.Track(p);
         p.BeginOutputReadLine();
         p.BeginErrorReadLine();
         _process = p;

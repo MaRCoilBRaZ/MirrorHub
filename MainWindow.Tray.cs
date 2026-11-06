@@ -89,10 +89,26 @@ public partial class MainWindow
             var device = d;
             android.DropDownItems.Add(new Forms.ToolStripMenuItem(d.Display, null, (_, _) => ToggleMirror(device))
             {
-                Checked = IsMirroring(d),
+                Checked = IsMirroring(d) && !IsAudioOnly(d),
             });
         }
         m.Items.Add(android);
+
+        var audio = new Forms.ToolStripMenuItem("Android audio only (no video)")
+        {
+            ShortcutKeyDisplayString = HotkeyText(HotkeyActions.ToggleAudioOnly),
+        };
+        if (online.Count == 0)
+            audio.DropDownItems.Add(new Forms.ToolStripMenuItem("No device connected") { Enabled = false });
+        foreach (var d in online)
+        {
+            var device = d;
+            audio.DropDownItems.Add(new Forms.ToolStripMenuItem(d.Display, null, (_, _) => ToggleAudioOnly(device))
+            {
+                Checked = IsAudioOnly(d),
+            });
+        }
+        m.Items.Add(audio);
 
         m.Items.Add(new Forms.ToolStripMenuItem("AirPlay receiver (iPhone / iPad)", null, (_, _) => ToggleAirPlay())
         {

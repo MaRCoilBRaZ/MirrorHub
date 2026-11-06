@@ -11,10 +11,10 @@ using QRCoder;
 
 namespace MirrorHub;
 
-public sealed record DeviceItem(Device Device, bool Mirroring, bool HasProfile)
+public sealed record DeviceItem(Device Device, bool Mirroring, bool AudioOnly, bool HasProfile)
 {
     public string Label =>
-        $"{(Mirroring ? "▶ " : "")}{Device.Model}  ·  {(Device.IsWifi ? "Wi-Fi" : "USB")}" +
+        $"{(AudioOnly ? "♪ " : Mirroring ? "▶ " : "")}{Device.Model}  ·  {(Device.IsWifi ? "Wi-Fi" : "USB")}" +
         (HasProfile ? "  ·  profile" : "") +
         (Device.State != "device" ? $"  ·  {Device.State}" : "") +
         $"\n{Device.Serial}";
@@ -25,7 +25,8 @@ public sealed record ProfileItem(string? Key, string Label);
 public partial class MainWindow : Window
 {
     readonly Settings _settings = Settings.Load();
-    readonly Dictionary<string, WatchedProcess> _sessions = new();   // adb serial -> screen mirror
+    readonly Dictionary<string, WatchedProcess> _sessions = new();   // adb serial -> screen mirror or audio only
+    readonly HashSet<string> _audioOnly = new();                      // serials in _sessions that are audio only
     readonly Dictionary<string, string> _hwIds = new();              // adb serial -> hardware id
     readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
     readonly GlobalHotkeys _hotkeys;
@@ -133,6 +134,7 @@ public partial class MainWindow : Window
         foreach (var s in _sessions.Values.ToList()) s.Stop();
         _airplay?.Stop();
         _camera?.Shutdown();
+        Adb.StopBundledServer();
         DisposeTray();
         base.OnClosing(e);
     }
@@ -197,7 +199,10 @@ public partial class MainWindow : Window
         return hw == null ? null : _sessions.Keys.FirstOrDefault(s => CachedHwId(s) == hw);
     }
 
+    /// <summary>True for any running session of this phone: screen mirror or audio only.</summary>
     bool IsMirroring(Device d) => SessionSerialFor(d) != null;
+
+    bool IsAudioOnly(Device d) => SessionSerialFor(d) is { } s && _audioOnly.Contains(s);
 
     void OpenOutputFolder()
     {
@@ -234,7 +239,7 @@ public partial class MainWindow : Window
 
             var selected = (DeviceList.SelectedItem as DeviceItem)?.Device.Serial;
             var items = devices
-                .Select(d => new DeviceItem(d, IsMirroring(d),
+                .Select(d => new DeviceItem(d, IsMirroring(d), IsAudioOnly(d),
                     CachedHwId(d.Serial) is { } hw && _settings.Profiles.ContainsKey(hw)))
                 .ToList();
             var current = DeviceList.ItemsSource as IEnumerable<DeviceItem> ?? [];
@@ -277,7 +282,7 @@ public partial class MainWindow : Window
 
     // ---------- mirroring ----------
 
-    bool StartMirror(Device d, string? startApp = null)
+    bool StartMirror(Device d, string? startApp = null, bool audioOnly = false)
     {
         if (Tools.Scrcpy == null) { Log("scrcpy not found."); return false; }
         if (d.State != "device")
@@ -285,11 +290,17 @@ public partial class MainWindow : Window
             Log($"{d.Model}: state \"{d.State}\". Unlock the phone and accept the USB debugging prompt.");
             return false;
         }
-        if (IsMirroring(d)) { Log($"{d.Model} is already being mirrored."); return false; }
+        if (IsMirroring(d))
+        {
+            Log(IsAudioOnly(d)
+                ? $"{d.Model}: audio only is running. Stop it first to start screen mirroring (which also has sound)."
+                : $"{d.Model} is already being mirrored{(audioOnly ? " (with sound, if \"Phone sound on the PC\" is on)" : "")}.");
+            return false;
+        }
 
         try { _settings.Save(); } catch { }
         var options = _settings.OptionsFor(CachedHwId(d.Serial));
-        var session = Scrcpy.Create(d, options, _settings.OutputDir, startApp);
+        var session = audioOnly ? Scrcpy.CreateAudioOnly(d, options) : Scrcpy.Create(d, options, _settings.OutputDir, startApp);
         session.Log += m => Log($"[{d.Model}] {m}");
         session.Restarting += n =>
         {
@@ -298,22 +309,39 @@ public partial class MainWindow : Window
         session.Ended += unexpected => Dispatcher.Invoke(() =>
         {
             _sessions.Remove(d.Serial);
-            if (unexpected) Notify(_settings.Notify.MirrorEvents, "Mirroring stopped", $"{d.Model}: could not reconnect.");
-            if (options.Record) Notify(_settings.Notify.FileSaved, "Recording saved", _settings.OutputDir, OpenOutputFolder);
+            _audioOnly.Remove(d.Serial);
+            if (unexpected) Notify(_settings.Notify.MirrorEvents, audioOnly ? "Phone audio stopped" : "Mirroring stopped",
+                $"{d.Model}: could not reconnect.");
+            if (options.Record && !audioOnly) Notify(_settings.Notify.FileSaved, "Recording saved", _settings.OutputDir, OpenOutputFolder);
             _ = RefreshDevices();
         });
         _sessions[d.Serial] = session;
+        if (audioOnly)
+        {
+            _audioOnly.Add(d.Serial);
+            Log($"{d.Model}: audio only (no video, no window). Stop it with ■ Stop or from the icon menu.");
+        }
         session.Start();
         _ = RefreshDevices();
         return true;
     }
 
+    void ToggleAudioOnly(Device? d = null)
+    {
+        d ??= TargetDevice();
+        if (d == null) return;
+        if (IsAudioOnly(d)) _sessions[SessionSerialFor(d)!].Stop();
+        else StartMirror(d, audioOnly: true);
+    }
+
+    void AudioOnly_Click(object sender, RoutedEventArgs e) => ToggleAudioOnly();
+
     void ToggleMirror(Device? d = null)
     {
         d ??= TargetDevice();
         if (d == null) return;
-        if (SessionSerialFor(d) is { } serial) _sessions[serial].Stop();
-        else StartMirror(d);
+        if (SessionSerialFor(d) is { } serial && !IsAudioOnly(d)) _sessions[serial].Stop();
+        else StartMirror(d);   // explains what to do if audio only is running
     }
 
     void Start_Click(object sender, RoutedEventArgs e)

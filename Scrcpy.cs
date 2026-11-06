@@ -47,6 +47,30 @@ static class Scrcpy
         Env,
         async () => { if (device.IsWifi) await Adb.RunAsync("connect", device.Serial); });
 
+    /// <summary>
+    /// Phone sound only, no video and no window: very light on the PC, meant to run in the background
+    /// (e.g. while gaming). Requires Android 11+.
+    /// </summary>
+    public static WatchedProcess CreateAudioOnly(Device device, MirrorOptions o) => new(
+        Tools.Scrcpy!,
+        () => AudioOnlyArgs(device, o),
+        () => o.AutoReconnect,
+        Env,
+        async () => { if (device.IsWifi) await Adb.RunAsync("connect", device.Serial); });
+
+    static IEnumerable<string> AudioOnlyArgs(Device device, MirrorOptions o)
+    {
+        yield return "--serial=" + device.Serial;
+        yield return "--no-video";
+        yield return "--no-window";
+        yield return "--no-control";
+        yield return "--require-audio";     // fail visibly instead of sitting there silent (Android < 11)
+        // Opus at 64 kbit/s: half the default bitrate, hard to tell apart from it in headphones.
+        yield return "--audio-codec=opus";
+        yield return "--audio-bit-rate=64K";
+        yield return $"--audio-buffer={o.AudioBufferMs}";
+    }
+
     static IEnumerable<string> MirrorArgs(Device device, MirrorOptions o, string outputDir, string? startApp)
     {
         yield return "--serial=" + device.Serial;
