@@ -35,9 +35,13 @@ jobs:
 
       - name: Build
         run: |
+          set -o pipefail
           git clone https://github.com/FDH2/UxPlay.git uxplay-src
           git -C uxplay-src checkout "$UXPLAY_COMMIT"
-          cmake -S uxplay-src -B uxplay-build -G Ninja
+          # NO_MARCH_NATIVE: otherwise lib/ is built for the CI runner's CPU (e.g. AVX-512)
+          # and crashes with STATUS_ILLEGAL_INSTRUCTION (0xC000001D) on other PCs.
+          cmake -S uxplay-src -B uxplay-build -G Ninja -DNO_MARCH_NATIVE=ON | tee cmake.log
+          if grep -q "Using CFLAGS with  -march=native" cmake.log; then echo "-march=native still enabled"; exit 1; fi
           ninja -C uxplay-build
 
       - name: Bundle exe, DLLs and GStreamer plugins

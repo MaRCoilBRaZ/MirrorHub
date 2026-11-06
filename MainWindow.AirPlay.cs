@@ -178,6 +178,17 @@ public partial class MainWindow
         await Task.Delay(300);   // the last output lines can arrive after the exit
         var tail = string.Join("\n", _airTail.Where(l => !l.Contains(" exited (code")).TakeLast(5));
 
+        // 0xC000001D = STATUS_ILLEGAL_INSTRUCTION: the build uses CPU instructions this PC lacks.
+        // Changing the renderer cannot help.
+        if (_airTail.Any(l => l.Contains("exited (code -1073741795)")))
+        {
+            SetAirStatus("The receiver is not compatible with this PC's processor", Red);
+            ShowAirProblem("The AirPlay receiver crashed because it uses processor instructions this PC does not support.\n\n" +
+                           "Download the latest MirrorHub version. If it still happens, click \"Copy log\" and send it to the developer.",
+                           ("Copy log", CopyLog));
+            return;
+        }
+
         if ((rendererFailed || !_airEverReady) && sink != "auto" && !_airTriedFallback)
         {
             // The usual cause on other PCs: the chosen renderer (e.g. D3D12) is not supported by the graphics card.
