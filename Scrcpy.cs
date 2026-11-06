@@ -69,6 +69,19 @@ static class Scrcpy
         yield return "--audio-codec=opus";
         yield return "--audio-bit-rate=64K";
         yield return $"--audio-buffer={o.AudioBufferMs}";
+        foreach (var a in PhoneTooArgs(o)) yield return a;
+    }
+
+    /// <summary>
+    /// Sound on the PC and on the phone at the same time. Needs the "playback" source (Android 13+):
+    /// unlike the default "output" source it does not mute the phone, but apps that opt out of
+    /// capture are not heard on the PC.
+    /// </summary>
+    static IEnumerable<string> PhoneTooArgs(MirrorOptions o)
+    {
+        if (!o.AudioOnPhoneToo) yield break;
+        yield return "--audio-source=playback";
+        yield return "--audio-dup";
     }
 
     static IEnumerable<string> MirrorArgs(Device device, MirrorOptions o, string outputDir, string? startApp)
@@ -87,6 +100,7 @@ static class Scrcpy
         {
             yield return "--audio-codec=" + o.AudioCodec;
             yield return $"--audio-buffer={o.AudioBufferMs}";
+            foreach (var a in PhoneTooArgs(o)) yield return a;
         }
         else yield return "--no-audio";
 

@@ -14,6 +14,7 @@ public sealed class MirrorOptions
     public int MaxSize { get; set; } = 0;          // 0 = native resolution
     public int VideoBufferMs { get; set; } = 0;
     public bool Audio { get; set; } = true;
+    public bool AudioOnPhoneToo { get; set; }      // keep playing on the phone as well (Android 13+)
     public string AudioCodec { get; set; } = "opus";
     public int AudioBufferMs { get; set; } = 50;
     public string HwDec { get; set; } = "auto";

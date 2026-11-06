@@ -99,6 +99,8 @@
                                 <TextBlock Text="Options" Style="{StaticResource SubHeader}"/>
                                 <WrapPanel>
                                     <CheckBox Content="Phone sound on the PC" IsChecked="{Binding Audio}"/>
+                                    <CheckBox Content="Also keep the sound on the phone" IsChecked="{Binding AudioOnPhoneToo}"
+                                              ToolTip="Sound plays on both the PC and the phone (also for &quot;♪ Audio only&quot;). Android 13 or newer. Apps that block audio capture are then heard only on the phone."/>
                                     <CheckBox Content="Control the phone with mouse and keyboard" IsChecked="{Binding Control}"/>
                                     <CheckBox Content="Record (.mkv)" IsChecked="{Binding Record}"/>
                                     <CheckBox Content="Start mirroring when the phone connects" IsChecked="{Binding AutoMirror}"/>
