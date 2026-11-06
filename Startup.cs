@@ -8,6 +8,12 @@ static class Startup
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     const string ValueName = "MirrorHub";
     public const string AutostartArg = "--autostart";
+    // Passed by "Restart": wait for the old instance to exit, keep the window and the receiver as they were.
+    public const string RestartArg = "--restart";
+    public const string ShowArg = "--show";
+    public const string AirPlayArg = "--airplay";
+    public const string AirAudioArg = "--airplay-audio";
+    public static bool HasArg(string arg) => Environment.GetCommandLineArgs().Contains(arg);
 
     /// <summary>True when this process was launched by Windows at logon.</summary>
     public static bool LaunchedAtLogon => Environment.GetCommandLineArgs().Contains(AutostartArg);

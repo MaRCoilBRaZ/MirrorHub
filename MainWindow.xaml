@@ -181,6 +181,8 @@
                         <TextBlock x:Name="AirStatus" Text="Stopped" FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <WrapPanel>
                             <Button Content="▶ Start receiver" FontWeight="SemiBold" Click="AirStart_Click"/>
+                            <Button Content="♪ Audio only" Click="AirAudio_Click"
+                                    ToolTip="Sound from the iPhone/iPad on the PC, no video window. Lighter than screen mirroring."/>
                             <Button Content="■ Stop" Click="AirStop_Click"/>
                             <Button Content="Output folder" Click="OpenFolder_Click"/>
                         </WrapPanel>
@@ -194,7 +196,7 @@
                         </Border>
 
                         <TextBlock Style="{StaticResource Hint}" Margin="0,2,0,0"
-                                   Text="On the iPhone/iPad: Control Center → Screen Mirroring → pick the name below. PC and iPhone must be on the same Wi-Fi."/>
+                                   Text="On the iPhone/iPad: Control Center → Screen Mirroring → pick the name below. PC and iPhone must be on the same Wi-Fi. &quot;♪ Audio only&quot;: sound without a video window; music and video apps can also send sound with their own AirPlay icon (better quality)."/>
 
                         <DockPanel Margin="0,10,0,0">
                             <TextBlock Text="Name shown on the iPhone" Style="{StaticResource Lbl}"/>
@@ -208,7 +210,21 @@
                         <WrapPanel>
                             <CheckBox Content="Fullscreen" IsChecked="{Binding AirPlayFullscreen}"/>
                             <CheckBox Content="Record (.mp4)" IsChecked="{Binding AirPlayRecord}"/>
+                            <CheckBox Content="Lowest latency (games)" IsChecked="{Binding AirPlayLowLatency}"
+                                      ToolTip="Shows each frame as soon as it arrives. Less delay, but sound and picture are no longer kept in sync."/>
                         </WrapPanel>
+                        <DockPanel Margin="0,4,0,0">
+                            <TextBlock Text="iPhones/iPads at the same time" Style="{StaticResource Lbl}"/>
+                            <ComboBox x:Name="AirCountBox" SelectedItem="{Binding AirPlayReceivers}" Width="70" HorizontalAlignment="Left"/>
+                            <TextBlock Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       Text="Each one gets its own name (MirrorHub, MirrorHub 2…) and its own window."/>
+                        </DockPanel>
+                        <DockPanel Margin="0,4,0,0">
+                            <TextBlock Text="Sound delay (ms)" Style="{StaticResource Lbl}"/>
+                            <TextBox Text="{Binding AirPlayAudioDelayMs}" Width="70" HorizontalAlignment="Left"/>
+                            <TextBlock Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       Text="If you hear the sound before you see the picture, raise it (try 100, then 200). Max 999. Not used with &quot;Lowest latency&quot;."/>
+                        </DockPanel>
 
                         <Expander x:Name="AirAdvanced" Header="Advanced settings" Margin="0,8,0,0"
                                   Expanded="Advanced_Toggled" Collapsed="Advanced_Toggled">

@@ -14,6 +14,12 @@ public partial class App : Application
 
         _instanceMutex = new Mutex(true, @"Local\MirrorHub.SingleInstance", out var isFirst);
         _showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\MirrorHub.Show");
+        if (!isFirst && MirrorHub.Startup.HasArg(MirrorHub.Startup.RestartArg))
+        {
+            // "Restart": the old instance is closing, wait for it instead of showing it.
+            try { isFirst = _instanceMutex.WaitOne(TimeSpan.FromSeconds(20)); }
+            catch (AbandonedMutexException) { isFirst = true; }
+        }
         if (!isFirst)
         {
             _showSignal.Set();

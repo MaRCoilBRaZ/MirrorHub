@@ -69,6 +69,7 @@ public static class HotkeyActions
     public const string ToggleMirror = "ToggleMirror";
     public const string ToggleAudioOnly = "ToggleAudioOnly";
     public const string ToggleAirPlay = "ToggleAirPlay";
+    public const string ToggleAirAudio = "ToggleAirAudio";
     public const string Screenshot = "Screenshot";
     public const string ToggleCamera = "ToggleCamera";
     public const string ToggleWindow = "ToggleWindow";
@@ -78,6 +79,7 @@ public static class HotkeyActions
         (ToggleMirror, "Start / stop Android mirroring", "Ctrl+Alt+M"),
         (ToggleAudioOnly, "Start / stop Android audio only", "Ctrl+Alt+P"),
         (ToggleAirPlay, "Start / stop AirPlay receiver", "Ctrl+Alt+A"),
+        (ToggleAirAudio, "Start / stop iPhone audio only", "Ctrl+Alt+I"),
         (Screenshot, "Android screenshot", "Ctrl+Alt+S"),
         (ToggleCamera, "Start / stop camera", "Ctrl+Alt+C"),
         (ToggleWindow, "Show / hide MirrorHub", "Ctrl+Alt+H"),
@@ -119,6 +121,9 @@ public sealed class Settings
     public bool AirPlayFullscreen { get; set; }
     public bool AirPlayNoHold { get; set; } = true;
     public bool AirPlayRecord { get; set; }
+    public int AirPlayReceivers { get; set; } = 1;     // iPhones/iPads mirrored at the same time
+    public int AirPlayAudioDelayMs { get; set; }       // > 0 plays the sound later (when it comes before the picture)
+    public bool AirPlayLowLatency { get; set; }        // show frames as soon as they arrive, no audio/video timestamps
     public bool AirPlayAutoStart { get; set; }
 
     /// <summary>The device's own profile if it has one, otherwise the default options.</summary>

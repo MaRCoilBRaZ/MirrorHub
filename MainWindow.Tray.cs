@@ -112,9 +112,15 @@ public partial class MainWindow
 
         m.Items.Add(new Forms.ToolStripMenuItem("AirPlay receiver (iPhone / iPad)", null, (_, _) => ToggleAirPlay())
         {
-            Checked = _airplay != null,
+            Checked = AirRunning && !_airAudioOnly,
             Enabled = Tools.UxPlay != null,
             ShortcutKeyDisplayString = HotkeyText(HotkeyActions.ToggleAirPlay),
+        });
+        m.Items.Add(new Forms.ToolStripMenuItem("iPhone / iPad audio only (no video)", null, (_, _) => ToggleAirPlay(audioOnly: true))
+        {
+            Checked = AirRunning && _airAudioOnly,
+            Enabled = Tools.UxPlay != null,
+            ShortcutKeyDisplayString = HotkeyText(HotkeyActions.ToggleAirAudio),
         });
         m.Items.Add(new Forms.ToolStripMenuItem("Phone camera…", null, (_, _) => OpenCamera())
         {
@@ -137,6 +143,7 @@ public partial class MainWindow
         m.Items.Add("Open output folder", null, (_, _) => OpenOutputFolder());
         m.Items.Add("Settings", null, (_, _) => { ShowFromTray(); Tabs.SelectedItem = SettingsTab; });
         m.Items.Add(new Forms.ToolStripSeparator());
+        m.Items.Add("Restart", null, (_, _) => RestartApp());
         m.Items.Add("Exit", null, (_, _) => ExitApp());
     }
 }

@@ -23,6 +23,8 @@ public sealed class WatchedProcess(
     DateTime _startedAt;
 
     public event Action<string>? Log;
+    /// <summary>Id of the running process, if any.</summary>
+    public int? ProcessId { get { try { return _process is { HasExited: false } p ? p.Id : null; } catch { return null; } } }
     /// <summary>Raised before each relaunch attempt (1-based).</summary>
     public event Action<int>? Restarting;
     /// <summary>Raised once when the session is over; true = it ended unexpectedly (crash, retries exhausted).</summary>

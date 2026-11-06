@@ -71,7 +71,8 @@ public partial class MainWindow
     {
         HotkeyActions.ToggleMirror => () => ToggleMirror(),
         HotkeyActions.ToggleAudioOnly => () => ToggleAudioOnly(),
-        HotkeyActions.ToggleAirPlay => ToggleAirPlay,
+        HotkeyActions.ToggleAirPlay => () => ToggleAirPlay(),
+        HotkeyActions.ToggleAirAudio => () => ToggleAirPlay(audioOnly: true),
         HotkeyActions.Screenshot => () => _ = TakeScreenshot(),
         HotkeyActions.ToggleCamera => () => Camera.Toggle(),
         HotkeyActions.ToggleWindow => ToggleWindow,

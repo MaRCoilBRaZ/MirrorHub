@@ -33,7 +33,6 @@ public partial class MainWindow : Window
     List<Device> _devices = [];
     Dictionary<string, Device> _online = new();
     bool _refreshing, _firstRefresh = true, _exiting;
-    WatchedProcess? _airplay;
     CameraWindow? _camera;
 
     public MainWindow()
@@ -45,6 +44,7 @@ public partial class MainWindow : Window
         RenderFitBox.ItemsSource = new[] { "letterbox", "stretched", "unscaled" };
         AirResBox.ItemsSource = new[] { "1280x720@60", "1920x1080@60", "2560x1440@60", "3840x2160@60" };
         AirSinkBox.ItemsSource = new[] { "auto", "d3d11videosink", "d3d12videosink" };
+        AirCountBox.ItemsSource = Enumerable.Range(1, UxPlay.MaxReceivers).ToArray();
         DataContext = _settings;
         MinimizedModeBox.SelectedIndex = (int)_settings.MinimizedMode;
         BuildQualityChoices();
@@ -76,7 +76,8 @@ public partial class MainWindow : Window
         {
             await RefreshDevices();
             _poll.Start();
-            if (_settings.AirPlayAutoStart) await StartAirPlay(interactive: false);
+            if (Startup.HasArg(Startup.AirAudioArg)) await StartAirPlay(interactive: false, audioOnly: true);
+            else if (_settings.AirPlayAutoStart || Startup.HasArg(Startup.AirPlayArg)) await StartAirPlay(interactive: false);
         });
     }
 
@@ -85,6 +86,11 @@ public partial class MainWindow : Window
     /// <summary>Shows the window, or keeps it minimized / hidden according to the settings.</summary>
     public void ShowAtStartup()
     {
+        if (Startup.HasArg(Startup.RestartArg))
+        {
+            if (Startup.HasArg(Startup.ShowArg) || !_settings.MinimizeToTray) Show();   // as it was before the restart
+            return;
+        }
         var minimized = _settings.MinimizedMode == StartMinimizedMode.Always ||
                         (_settings.MinimizedMode == StartMinimizedMode.AtLogon && Startup.LaunchedAtLogon);
         if (!minimized) { Show(); return; }
@@ -112,6 +118,19 @@ public partial class MainWindow : Window
         Close();
     }
 
+    string[]? _restartArgs;   // set by RestartApp: start a new instance with these once we have closed
+
+    /// <summary>Closes MirrorHub and opens it again, with the window and the AirPlay receiver as they are now.</summary>
+    void RestartApp()
+    {
+        var args = new List<string> { Startup.RestartArg };
+        if (IsVisible && WindowState != WindowState.Minimized) args.Add(Startup.ShowArg);
+        if (AirRunning) args.Add(_airAudioOnly ? Startup.AirAudioArg : Startup.AirPlayArg);
+        _restartArgs = args.ToArray();
+        Log("Restarting MirrorHub…");
+        ExitApp();
+    }
+
     protected override void OnStateChanged(EventArgs e)
     {
         base.OnStateChanged(e);
@@ -132,11 +151,17 @@ public partial class MainWindow : Window
         _hotkeys.Clear();
         try { _settings.Save(); } catch { }
         foreach (var s in _sessions.Values.ToList()) s.Stop();
-        _airplay?.Stop();
+        StopAllAir();
         _camera?.Shutdown();
         Adb.StopBundledServer();
         DisposeTray();
         base.OnClosing(e);
+        if (_restartArgs != null && Environment.ProcessPath is { } exe)
+        {
+            // The new instance waits until this one has exited (single-instance mutex).
+            try { Process.Start(exe, _restartArgs); }
+            catch (Exception ex) { MessageBox.Show("MirrorHub could not restart: " + ex.Message, "MirrorHub"); }
+        }
     }
 
     // ---------- helpers ----------

@@ -23,12 +23,15 @@ MirrorHub is a Windows desktop app that brings together two excellent open-sourc
 
 **iPhone / iPad**
 - AirPlay screen mirroring receiver with audio, up to 4K (H.265)
+- **Audio only** mode: the iPhone's sound on the PC with no video window (Screen Mirroring, or the AirPlay icon of music/video apps)
+- **Several iPhones/iPads at the same time** (up to 4): each receiver has its own name (MirrorHub, MirrorHub 2…) and its own window
+- **Sound delay** to line up sound and picture, and a **lowest latency** mode for games
 - Quality presets (Full HD, 1440p, 4K), optional PIN, custom name, D3D12/D3D11 rendering, `.mp4` recording
 - Checks before starting: if the network is Public or the firewall blocks the receiver, it offers to fix it (one administrator prompt)
 - Clear status and error messages; falls back to the automatic renderer if the chosen one does not work on the PC
 
 **App**
-- Notification-area icon with a right-click menu to control everything
+- Notification-area icon with a right-click menu to control everything, including **Restart**
 - Start with Windows, start minimized, close to tray, single instance
 - Notifications you can turn on/off per event
 - **Customizable global keyboard shortcuts**
@@ -53,6 +56,8 @@ Everything is included (scrcpy, adb, UxPlay, GStreamer): nothing to install. Win
 1. PC and iPhone on the same Wi-Fi network, set as a **Private** network in Windows.
 2. Tab **iPhone / iPad** → **▶ Start receiver**. The first time, accept the offer to set up the network/firewall (administrator prompt).
 3. On the iPhone: **Control Center → Screen Mirroring → MirrorHub**.
+
+For sound only, use **♪ Audio only** instead of Start receiver. For more iPhones/iPads at once, set *iPhones/iPads at the same time* under Options: each device picks a different name.
 
 Shortcuts inside the Android mirror window come from scrcpy, e.g. `Alt+F` fullscreen, `Alt+H` home, `Alt+B` back, `Alt+O` turn the phone screen off.
 

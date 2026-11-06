@@ -9,11 +9,32 @@ static class UxPlay
 {
     const string FirewallRule = "MirrorHub AirPlay (UxPlay)";
 
-    public static WatchedProcess Create(Settings s, Func<bool> restartOnCrash)
+    public const int MaxReceivers = 4;
+
+    /// <summary>How many receivers to run: one per iPhone/iPad mirrored at the same time.</summary>
+    public static int ReceiverCount(Settings s) => Math.Clamp(s.AirPlayReceivers, 1, MaxReceivers);
+
+    /// <summary>Receiver 1 keeps the plain name; the others get "Name 2", "Name 3"…</summary>
+    public static string NameFor(Settings s, int slot) => slot == 1 ? s.AirPlayName : $"{s.AirPlayName} {slot}";
+
+    /// <summary>
+    /// Every receiver needs its own device id (a MAC address). Receiver 1 uses the real one, as before;
+    /// the others get a fixed, locally administered address, so the iPhone sees the same device every time.
+    /// </summary>
+    static string MacFor(int slot)
+    {
+        var h = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"MirrorHub|{Environment.MachineName}|{slot}"));
+        h[0] = (byte)((h[0] & 0xFC) | 0x02);   // locally administered, unicast
+        return string.Join(":", h.Take(6).Select(b => b.ToString("x2")));
+    }
+
+    public static WatchedProcess Create(Settings s, int slot, bool audioOnly, Func<bool> restartOnCrash)
     {
         // UxPlay keeps its key in $HOME: a stable HOME keeps the server identity
-        // (and PIN pairings) across restarts.
-        var home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MirrorHub", "uxplay");
+        // (and PIN pairings) across restarts. One folder per receiver.
+        var home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MirrorHub",
+                                slot == 1 ? "uxplay" : $"uxplay-{slot}");
         Directory.CreateDirectory(home);
         var bin = Path.GetDirectoryName(Tools.UxPlay)!;
         var env = new Dictionary<string, string>
@@ -32,7 +53,7 @@ static class UxPlay
             env["GST_PLUGIN_SCANNER_1_0"] = Path.Combine(root, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe");
             env["GST_REGISTRY_1_0"] = Path.Combine(home, "gst-registry.bin");
         }
-        return new WatchedProcess(Tools.UxPlay!, () => Args(s), restartOnCrash, env);
+        return new WatchedProcess(Tools.UxPlay!, () => Args(s, slot, audioOnly), restartOnCrash, env);
     }
 
     /// <summary>UxPlay prints this once it is listening.</summary>
@@ -40,22 +61,38 @@ static class UxPlay
 
     public static bool IsValidPin(string? pin) => pin != null && Regex.IsMatch(pin, @"^\d{4}$") && pin != "0000";
 
-    static IEnumerable<string> Args(Settings s)
+    static IEnumerable<string> Args(Settings s, int slot, bool audioOnly)
     {
-        yield return "-n"; yield return s.AirPlayName;
+        yield return "-n"; yield return NameFor(s, slot);
         yield return "-nh";
+        if (slot > 1) { yield return "-m"; yield return MacFor(slot); }
+        if (audioOnly)
+        {
+            // No window: in Screen Mirroring the iPhone sends only 1 frame/s, which is not shown;
+            // AirPlay audio from a music app (Apple Lossless) works as usual.
+            yield return "-vs"; yield return "0";
+            if (s.AirPlayNoHold) yield return "-nohold";
+            if (IsValidPin(s.AirPlayPin)) { yield return "-pin"; yield return s.AirPlayPin; }
+            yield break;
+        }
         yield return "-s"; yield return s.AirPlayResolution;
         yield return "-fps"; yield return s.AirPlayFps.ToString();
         if (s.AirPlayH265) yield return "-h265";
         if (s.AirPlayVideoSink != "auto") { yield return "-vs"; yield return s.AirPlayVideoSink; }
         if (s.AirPlayFullscreen) yield return "-fs";
+        if (s.AirPlayLowLatency) { yield return "-vsync"; yield return "no"; }
+        else if (s.AirPlayAudioDelayMs != 0)
+        {
+            // Timestamp sync (the default) with an audio offset; UxPlay accepts less than one second.
+            yield return "-vsync"; yield return Math.Clamp(s.AirPlayAudioDelayMs, -999, 999).ToString();
+        }
         if (s.AirPlayNoHold) yield return "-nohold";
         if (IsValidPin(s.AirPlayPin)) { yield return "-pin"; yield return s.AirPlayPin; }
         if (s.AirPlayRecord)
         {
             Directory.CreateDirectory(s.OutputDir);
             // UxPlay appends ".<n>.<format>.mp4".
-            yield return "-mp4"; yield return Path.Combine(s.OutputDir, $"iPhone_{DateTime.Now:yyyyMMdd_HHmmss}");
+            yield return "-mp4"; yield return Path.Combine(s.OutputDir, $"iPhone{(slot > 1 ? "-" + slot : "")}_{DateTime.Now:yyyyMMdd_HHmmss}");
         }
     }
 
