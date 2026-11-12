@@ -8,6 +8,8 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Version>0.2.0</Version>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!-- Restore evaluates both targets: lets Linux restore/build the project (it still builds net8.0 only when asked). -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
