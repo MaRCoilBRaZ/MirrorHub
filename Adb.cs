@@ -33,7 +33,7 @@ static class ProcessRunner
         Process p;
         try { p = Process.Start(psi)!; }
         catch (Win32Exception ex) { return (-1, $"{Path.GetFileName(exe)} could not be started: {ex.Message}"); }
-        ChildProcesses.Track(p);
+        Os.TrackChild(p);
 
         using (p)
         {
@@ -65,7 +65,8 @@ static class Adb
     /// </summary>
     public static void StopBundledServer()
     {
-        if (!Tools.Adb.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)) return;
+        var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!Tools.Adb.StartsWith(AppContext.BaseDirectory, cmp)) return;
         try
         {
             using var p = Process.Start(new ProcessStartInfo(Tools.Adb, "kill-server") { UseShellExecute = false, CreateNoWindow = true });
@@ -84,8 +85,11 @@ static class Adb
             if (line.Length == 0 || line.StartsWith("List of") || line.StartsWith('*')) continue;
             var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2) continue;
+            var state = parts[1] == "no" && parts.Length > 2 && parts[2].StartsWith("permissions", StringComparison.Ordinal)
+                ? "no permissions"
+                : parts[1];
             var model = parts.FirstOrDefault(x => x.StartsWith("model:"))?[6..].Replace('_', ' ') ?? parts[0];
-            list.Add(new Device(parts[0], parts[1], model));
+            list.Add(new Device(parts[0], state, model));
         }
         return list;
     }
@@ -148,7 +152,7 @@ static class Adb
         foreach (var a in new[] { "-s", serial, "exec-out", "screencap", "-p" }) psi.ArgumentList.Add(a);
 
         using var p = Process.Start(psi)!;
-        ChildProcesses.Track(p);
+        Os.TrackChild(p);
         await using (var fs = File.Create(file))
             await p.StandardOutput.BaseStream.CopyToAsync(fs);
         await p.WaitForExitAsync();

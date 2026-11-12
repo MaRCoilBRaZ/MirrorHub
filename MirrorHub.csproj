@@ -2,27 +2,39 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFrameworks>net8.0-windows;net8.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UseWPF>true</UseWPF>
-    <!-- WinForms only for the notification-area icon (NotifyIcon). -->
-    <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>0.1.6</Version>
+    <Version>0.2.0</Version>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- Avoid WPF/WinForms name clashes (Application, Button, ...): WinForms types are fully qualified. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <!-- WinForms only for the notification-area icon (NotifyIcon) and message-only hotkey window. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <!-- Avoid Avalonia/WinForms name clashes (Application, Control, ...): WinForms types are fully qualified. -->
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
+    <Compile Remove="Platform\Linux\**" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <Compile Remove="Platform\Windows\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="app.ico" />
+    <AvaloniaResource Include="app.ico" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.23" />
     <PackageReference Include="QRCoder" Version="1.8.1" />
   </ItemGroup>
 

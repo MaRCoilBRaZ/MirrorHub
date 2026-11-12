@@ -1,0 +1,349 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MirrorHub.MainWindow"
+        Title="MirrorHub" Icon="/app.ico" Height="740" Width="1020" MinWidth="840" MinHeight="600">
+    <Window.Styles>
+        <Style Selector="Button">
+            <Setter Property="Margin" Value="0,0,6,6"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="Margin" Value="0,0,16,8"/>
+        </Style>
+        <Style Selector="TextBlock.Lbl">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,6"/>
+        </Style>
+        <Style Selector="TextBlock.Header">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style Selector="TextBlock.SubHeader">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#555555"/>
+            <Setter Property="Margin" Value="0,10,0,6"/>
+        </Style>
+        <Style Selector="TextBlock.Hint">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="Gray"/>
+            <Setter Property="Margin" Value="0,8,0,0"/>
+        </Style>
+        <Style Selector="TabControl#Tabs > TabItem">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="Padding" Value="12,6"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="12" RowDefinitions="*,180">
+        <TabControl Grid.Row="0" x:Name="Tabs">
+            <!-- ===================== Android ===================== -->
+            <TabItem Header="Android">
+                <Grid x:Name="AndroidDropGrid" Margin="8" DragDrop.AllowDrop="True" ColumnDefinitions="330,16,*">
+                    <DockPanel Grid.Column="0">
+                        <TextBlock DockPanel.Dock="Top" Text="Devices" Classes="Header"/>
+                        <StackPanel DockPanel.Dock="Bottom">
+                            <TextBlock Text="Connection" Classes="SubHeader"/>
+                            <WrapPanel>
+                                <Button Content="Connect IP…" Click="ConnectIp_Click"/>
+                                <Button Content="Pair with QR…" Click="PairQr_Click"/>
+                                <Button Content="Pair with code…" Click="PairCode_Click"/>
+                                <Button Content="USB → Wi-Fi" Click="UsbToWifi_Click"/>
+                                <Button Content="Disconnect" Click="Disconnect_Click"/>
+                            </WrapPanel>
+                            <TextBlock Text="Tools" Classes="SubHeader"/>
+                            <WrapPanel>
+                                <Button Content="Install APK…" Click="InstallApk_Click"/>
+                                <Button Content="Send files…" Click="SendFiles_Click"/>
+                                <Button Content="Launch app…" Click="StartApp_Click"/>
+                                <Button Content="Camera…" Click="OpenCamera_Click"/>
+                            </WrapPanel>
+                            <TextBlock Classes="Hint" Margin="0,2,0,0"
+                                       Text="Drop files or APKs here: APKs are installed, other files are copied to Download on the phone."/>
+                        </StackPanel>
+                        <ListBox x:Name="DeviceList" SelectionChanged="DeviceList_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Label}"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+
+                    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="Mirroring" Classes="Header"/>
+                            <WrapPanel>
+                                <Button Content="▶ Start mirroring" FontWeight="SemiBold" Click="Start_Click"/>
+                                <Button Content="♪ Audio only" Click="AudioOnly_Click"
+                                        ToolTip.Tip="Phone sound on the PC, no video and no window: very light, can stay on in the background (e.g. while gaming). Android 11+."/>
+                                <Button Content="■ Stop" Click="Stop_Click"/>
+                                <Button Content="Screenshot" Click="Screenshot_Click"/>
+                                <Button Content="Output folder" Click="OpenFolder_Click"/>
+                            </WrapPanel>
+
+                            <StackPanel x:Name="MirrorOptionsPanel">
+                                <TextBlock x:Name="ProfileNote" Foreground="#1a5fb4" Margin="0,4,0,0" IsVisible="False"/>
+
+                                <TextBlock Text="Quality" Classes="SubHeader"/>
+                                <StackPanel x:Name="AndroidQuality"/>
+
+                                <TextBlock Text="Options" Classes="SubHeader"/>
+                                <WrapPanel>
+                                    <CheckBox Content="Phone sound on the PC" IsChecked="{Binding Audio}"/>
+                                    <CheckBox Content="Also keep the sound on the phone" IsChecked="{Binding AudioOnPhoneToo}"
+                                              ToolTip.Tip="Sound plays on both the PC and the phone (also for &quot;♪ Audio only&quot;). Android 13 or newer. Apps that block audio capture are then heard only on the phone."/>
+                                    <CheckBox Content="Control the phone with mouse and keyboard" IsChecked="{Binding Control}"/>
+                                    <CheckBox Content="Record (.mkv)" IsChecked="{Binding Record}"/>
+                                    <CheckBox Content="Start mirroring when the phone connects" IsChecked="{Binding AutoMirror}"/>
+                                </WrapPanel>
+
+                                <Expander x:Name="AndroidAdvanced" Header="Advanced settings" Margin="0,8,0,0"
+                                          HorizontalAlignment="Stretch"
+                                          Expanded="Advanced_Toggled" Collapsed="Advanced_Toggled">
+                                    <StackPanel Margin="0,6,0,0">
+                                        <TextBlock Text="Settings for" Classes="SubHeader"/>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Content="Delete profile" Click="DeleteProfile_Click" Margin="6,0,0,6"/>
+                                            <Button DockPanel.Dock="Right" Content="New profile for the selected device" Click="CreateProfile_Click" Margin="6,0,0,6"/>
+                                            <ComboBox x:Name="ProfileBox" SelectionChanged="ProfileBox_SelectionChanged">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Label}"/>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                        </DockPanel>
+
+                                        <Grid Margin="0,6,0,0" ColumnDefinitions="Auto,*,20,Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Video codec" Classes="Lbl"/>
+                                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="VideoCodecBox" SelectedItem="{Binding VideoCodec}"/>
+                                            <TextBlock Grid.Row="1" Grid.Column="3" Text="Bitrate (Mbps)" Classes="Lbl"/>
+                                            <TextBox Grid.Row="1" Grid.Column="4" Text="{Binding BitRateMbps, UpdateSourceTrigger=LostFocus}"/>
+
+                                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Max FPS" Classes="Lbl"/>
+                                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding MaxFps, UpdateSourceTrigger=LostFocus}"/>
+                                            <TextBlock Grid.Row="2" Grid.Column="3" Text="Max resolution (0 = native)" Classes="Lbl"/>
+                                            <TextBox Grid.Row="2" Grid.Column="4" Text="{Binding MaxSize, UpdateSourceTrigger=LostFocus}"/>
+
+                                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Video buffer (ms)" Classes="Lbl"/>
+                                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding VideoBufferMs, UpdateSourceTrigger=LostFocus}"/>
+                                            <TextBlock Grid.Row="3" Grid.Column="3" Text="HW decoding" Classes="Lbl"/>
+                                            <ComboBox Grid.Row="3" Grid.Column="4" x:Name="HwDecBox" SelectedItem="{Binding HwDec}"/>
+
+                                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Audio codec" Classes="Lbl"/>
+                                            <ComboBox Grid.Row="4" Grid.Column="1" x:Name="AudioCodecBox" SelectedItem="{Binding AudioCodec}"/>
+                                            <TextBlock Grid.Row="4" Grid.Column="3" Text="Audio buffer (ms)" Classes="Lbl"/>
+                                            <TextBox Grid.Row="4" Grid.Column="4" Text="{Binding AudioBufferMs, UpdateSourceTrigger=LostFocus}"/>
+
+                                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Fit" Classes="Lbl"/>
+                                            <ComboBox Grid.Row="5" Grid.Column="1" x:Name="RenderFitBox" SelectedItem="{Binding RenderFit}"/>
+                                        </Grid>
+
+                                        <WrapPanel Margin="0,8,0,0">
+                                            <CheckBox Content="Keep phone awake" IsChecked="{Binding StayAwake}"/>
+                                            <CheckBox Content="Turn phone screen off" IsChecked="{Binding TurnScreenOff}"/>
+                                            <CheckBox Content="Always on top" IsChecked="{Binding AlwaysOnTop}"/>
+                                            <CheckBox Content="Fullscreen" IsChecked="{Binding Fullscreen}"/>
+                                            <CheckBox Content="Borderless" IsChecked="{Binding Borderless}"/>
+                                            <CheckBox Content="Auto-reconnect" IsChecked="{Binding AutoReconnect}"/>
+                                        </WrapPanel>
+
+                                        <TextBlock Classes="Hint"
+                                                   Text="A device with a profile uses its own settings; all others use the defaults. Changing a value here turns the quality into &quot;Custom&quot;."/>
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+
+                            <TextBlock Classes="Hint"
+                                       Text="Changes apply from the next mirroring start (including automatic reconnections). Shortcuts in the mirror window: Alt+F fullscreen · Alt+H home · Alt+B back · Alt+S recent apps · Alt+R rotate · Alt+O phone screen off · Alt+Shift+O on."/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
+
+            <!-- ===================== iPhone / iPad ===================== -->
+            <TabItem Header="iPhone / iPad">
+                <ScrollViewer Margin="8" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="AirPanel" MaxWidth="760" HorizontalAlignment="Left">
+                        <TextBlock Text="AirPlay receiver" Classes="Header"/>
+                        <TextBlock x:Name="AirStatus" Text="Stopped" FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <WrapPanel>
+                            <Button Content="▶ Start receiver" FontWeight="SemiBold" Click="AirStart_Click"/>
+                            <Button Content="♪ Audio only" Click="AirAudio_Click"
+                                    ToolTip.Tip="Sound from the iPhone/iPad on the PC, no video window. Lighter than screen mirroring."/>
+                            <Button Content="■ Stop" Click="AirStop_Click"/>
+                            <Button Content="Output folder" Click="OpenFolder_Click"/>
+                        </WrapPanel>
+
+                        <Border x:Name="AirProblem" IsVisible="False" Background="#FFF4E5" BorderBrush="#E8A33D"
+                                BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,4,0,6">
+                            <StackPanel>
+                                <SelectableTextBlock x:Name="AirProblemText" TextWrapping="Wrap"/>
+                                <WrapPanel x:Name="AirProblemActions" Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Classes="Hint" Margin="0,2,0,0"
+                                   Text="On the iPhone/iPad: Control Center → Screen Mirroring → pick the name below. PC and iPhone must be on the same Wi-Fi. &quot;♪ Audio only&quot;: sound without a video window; music and video apps can also send sound with their own AirPlay icon (better quality)."/>
+
+                        <DockPanel Margin="0,10,0,0">
+                            <TextBlock Text="Name shown on the iPhone" Classes="Lbl"/>
+                            <TextBox Text="{Binding AirPlayName, UpdateSourceTrigger=LostFocus}" Width="240" HorizontalAlignment="Left"/>
+                        </DockPanel>
+
+                        <TextBlock Text="Quality" Classes="SubHeader"/>
+                        <StackPanel x:Name="AirQuality"/>
+
+                        <TextBlock Text="Options" Classes="SubHeader"/>
+                        <WrapPanel>
+                            <CheckBox Content="Fullscreen" IsChecked="{Binding AirPlayFullscreen}"/>
+                            <CheckBox Content="Record (.mp4)" IsChecked="{Binding AirPlayRecord}"/>
+                            <CheckBox Content="Lowest latency (games)" IsChecked="{Binding AirPlayLowLatency}"
+                                      ToolTip.Tip="Shows each frame as soon as it arrives. Less delay, but sound and picture are no longer kept in sync."/>
+                        </WrapPanel>
+                        <DockPanel Margin="0,4,0,0">
+                            <TextBlock Text="iPhones/iPads at the same time" Classes="Lbl"/>
+                            <ComboBox x:Name="AirCountBox" SelectedItem="{Binding AirPlayReceivers}" Width="70" HorizontalAlignment="Left"/>
+                            <TextBlock Classes="Hint" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       Text="Each one gets its own name (MirrorHub, MirrorHub 2…) and its own window."/>
+                        </DockPanel>
+                        <DockPanel Margin="0,4,0,0">
+                            <TextBlock Text="Sound delay (ms)" Classes="Lbl"/>
+                            <TextBox Text="{Binding AirPlayAudioDelayMs, UpdateSourceTrigger=LostFocus}" Width="70" HorizontalAlignment="Left"/>
+                            <TextBlock Classes="Hint" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       Text="If you hear the sound before you see the picture, raise it (try 100, then 200). Max 999. Not used with &quot;Lowest latency&quot;."/>
+                        </DockPanel>
+
+                        <Expander x:Name="AirAdvanced" Header="Advanced settings" Margin="0,8,0,0"
+                                  HorizontalAlignment="Stretch"
+                                  Expanded="Advanced_Toggled" Collapsed="Advanced_Toggled">
+                            <StackPanel Margin="0,6,0,0">
+                                <Grid ColumnDefinitions="Auto,*,20,Auto,*" RowDefinitions="Auto,Auto,Auto">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Resolution" Classes="Lbl"/>
+                                    <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto">
+                                        <TextBox Grid.Column="0" Text="{Binding AirPlayResolution, UpdateSourceTrigger=LostFocus}"/>
+                                        <Button Grid.Column="1" x:Name="AirResPickBtn" Content="▾" Margin="2,0,0,6" Padding="8,4" ToolTip.Tip="Preset resolutions"/>
+                                    </Grid>
+                                    <TextBlock Grid.Row="0" Grid.Column="3" Text="Max FPS" Classes="Lbl"/>
+                                    <TextBox Grid.Row="0" Grid.Column="4" Text="{Binding AirPlayFps, UpdateSourceTrigger=LostFocus}"/>
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Renderer" Classes="Lbl"/>
+                                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="AirSinkBox" SelectedItem="{Binding AirPlayVideoSink}"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="3" Text="PIN (4 digits, empty = none)" Classes="Lbl"/>
+                                    <TextBox Grid.Row="1" Grid.Column="4" Text="{Binding AirPlayPin, UpdateSourceTrigger=LostFocus}" MaxLength="4"/>
+                                </Grid>
+
+                                <WrapPanel Margin="0,8,0,0">
+                                    <CheckBox Content="H.265" IsChecked="{Binding AirPlayH265}"/>
+                                    <CheckBox Content="New device replaces the current one" IsChecked="{Binding AirPlayNoHold}"/>
+                                </WrapPanel>
+                                <WrapPanel x:Name="FirewallPanel">
+                                    <Button x:Name="FirewallButton" Content="Set up firewall again" Click="Firewall_Click"/>
+                                </WrapPanel>
+
+                                <TextBlock x:Name="AirAdvancedHint" Classes="Hint"/>
+                            </StackPanel>
+                        </Expander>
+
+                        <TextBlock Classes="Hint" Text="Changes apply from the next receiver start."/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ===================== Settings ===================== -->
+            <TabItem x:Name="SettingsTab" Header="Settings">
+                <ScrollViewer Margin="8" VerticalScrollBarVisibility="Auto">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                        <TextBlock Text="Startup" Classes="Header"/>
+                        <CheckBox x:Name="StartAtLoginCheck"
+                                  IsChecked="{Binding StartWithWindows}" Click="StartupOption_Click"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <TextBlock Text="Start minimized" Classes="Lbl"/>
+                            <ComboBox x:Name="MinimizedModeBox" Width="280" SelectionChanged="MinimizedMode_Changed">
+                                <ComboBoxItem Content="Never"/>
+                                <ComboBoxItem x:Name="MinimizedAtLogonItem"/>
+                                <ComboBoxItem Content="Always"/>
+                            </ComboBox>
+                        </StackPanel>
+                        <CheckBox Content="Start the AirPlay receiver when MirrorHub opens"
+                                  IsChecked="{Binding AirPlayAutoStart}" Click="SaveSettings_Click"/>
+
+                        <TextBlock Text="Notification area" Classes="Header" Margin="0,16,0,8"/>
+                        <WrapPanel>
+                            <CheckBox x:Name="MinimizeToTrayCheck"
+                                      Content="When minimized, hide the window in the notification area (next to the clock)"
+                                      IsChecked="{Binding MinimizeToTray}" Click="SaveSettings_Click"/>
+                            <TextBlock x:Name="NoTrayHint" IsVisible="False" Foreground="Gray" Margin="0,0,0,8" VerticalAlignment="Center"
+                                       TextWrapping="Wrap"
+                                       Text="No system tray found. On GNOME install the extension &quot;AppIndicator and KStatusNotifierItem Support&quot;."/>
+                        </WrapPanel>
+                        <CheckBox x:Name="CloseToTrayCheck"
+                                  Content="When the window is closed, keep MirrorHub running in the notification area"
+                                  IsChecked="{Binding CloseToTray}" Click="SaveSettings_Click"/>
+                        <TextBlock x:Name="TrayUsageHint" Classes="Hint" Margin="0,0,0,0"
+                                   Text="Right-click the icon for the management menu; double-click to open the window. To quit: icon menu → Exit."/>
+
+                        <TextBlock Text="Notifications" Classes="Header" Margin="0,16,0,8"/>
+                        <CheckBox Content="Android device connected" IsChecked="{Binding Notify.DeviceConnected}" Click="SaveSettings_Click"/>
+                        <CheckBox Content="Android device disconnected" IsChecked="{Binding Notify.DeviceDisconnected}" Click="SaveSettings_Click"/>
+                        <CheckBox Content="Mirroring interrupted or reconnecting" IsChecked="{Binding Notify.MirrorEvents}" Click="SaveSettings_Click"/>
+                        <CheckBox Content="iPhone / iPad connected or connection lost" IsChecked="{Binding Notify.AirPlayClient}" Click="SaveSettings_Click"/>
+                        <CheckBox Content="Screenshots and recordings saved" IsChecked="{Binding Notify.FileSaved}" Click="SaveSettings_Click"/>
+
+                        <TextBlock Text="Global keyboard shortcuts" Classes="Header" Margin="0,16,0,8"/>
+                        <StackPanel x:Name="HotkeyEditorPanel">
+                            <Grid x:Name="HotkeyGrid" ColumnDefinitions="Auto,220,Auto"/>
+                            <WrapPanel>
+                                <Button Content="Restore defaults" Click="ResetHotkeys_Click"/>
+                            </WrapPanel>
+                            <TextBlock Classes="Hint" Margin="0,0,0,0"
+                                       Text="Click a box and press the combination (at least one of Ctrl, Alt, Shift, Win). Esc cancels. They work everywhere, even while MirrorHub is hidden. Mirroring and screenshot act on the selected device (or the first connected one)."/>
+                        </StackPanel>
+                        <StackPanel x:Name="HotkeyCommandsPanel" IsVisible="False">
+                            <TextBlock Classes="Hint" Margin="0,0,0,6"
+                                       Text="Assign these commands in your desktop environment's keyboard shortcut settings:"/>
+                            <TextBox x:Name="HotkeyCommandsBox" IsReadOnly="True" AcceptsReturn="True"
+                                     FontFamily="Consolas, DejaVu Sans Mono, Liberation Mono, monospace" FontSize="12"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+                            <WrapPanel>
+                                <Button Content="Copy commands" Click="CopyCommands_Click"/>
+                            </WrapPanel>
+                        </StackPanel>
+
+                        <TextBlock Text="Files" Classes="Header" Margin="0,16,0,8"/>
+                        <TextBlock Text="Folder for recordings and screenshots" Margin="0,0,0,4"/>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Open" Click="OpenFolder_Click" Margin="6,0,0,6"/>
+                            <Button DockPanel.Dock="Right" Content="Browse…" Click="BrowseOutput_Click" Margin="6,0,0,6"/>
+                            <TextBox Text="{Binding OutputDir, UpdateSourceTrigger=LostFocus}"/>
+                        </DockPanel>
+
+                        <TextBlock x:Name="SettingsPathHint" Classes="Hint"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <!-- Log -->
+        <DockPanel Grid.Row="1" Margin="0,10,0,0">
+            <DockPanel DockPanel.Dock="Top">
+                <Button DockPanel.Dock="Right" Content="Copy log" Click="CopyLog_Click" Padding="8,1" Margin="0,0,0,4"/>
+                <TextBlock Text="Log (if something does not work, click &quot;Copy log&quot; and send it)" Foreground="Gray" VerticalAlignment="Center"/>
+            </DockPanel>
+            <TextBox x:Name="LogBox"
+                     AcceptsReturn="True" IsReadOnly="True"
+                     FontFamily="Consolas, DejaVu Sans Mono, Liberation Mono, monospace" FontSize="12"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+        </DockPanel>
+    </Grid>
+</Window>

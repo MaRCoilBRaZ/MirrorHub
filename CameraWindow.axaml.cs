@@ -1,5 +1,6 @@
-using System.Windows;
-using System.Windows.Controls;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Threading;
 
 namespace MirrorHub;
 
@@ -18,17 +19,22 @@ public partial class CameraWindow : Window
     readonly Settings _settings;
     readonly Action<string> _log;
     readonly Action<string, string> _notifySaved;   // title, text
+    readonly Action? _onStateChanged;
     WatchedProcess? _session;
     bool _shuttingDown;
 
     public bool IsRunning => _session != null;
 
-    public CameraWindow(Settings settings, Action<string> log, Action<string, string> notifySaved)
+    // Parameterless constructor for XAML designer.
+    public CameraWindow() : this(new Settings(), _ => { }, (_, _) => { }, null) { }
+
+    public CameraWindow(Settings settings, Action<string> log, Action<string, string> notifySaved, Action? onStateChanged = null)
     {
         InitializeComponent();
         _settings = settings;
         _log = m => log("[Camera] " + m);
         _notifySaved = notifySaved;
+        _onStateChanged = onStateChanged;
         OrientationBox.ItemsSource = new[] { "0", "90", "180", "270" };
         CodecBox.ItemsSource = new[] { "h264", "h265", "av1" };
         DataContext = settings.Camera;
@@ -56,10 +62,10 @@ public partial class CameraWindow : Window
         if (choices.All(c => c.Value != _settings.Camera.Camera))
             choices.Add(new CameraChoice(_settings.Camera.Camera, _settings.Camera.Camera));
         CameraBox.ItemsSource = choices;
-        CameraBox.SelectedValue = _settings.Camera.Camera;
+        CameraBox.SelectedItem = choices.FirstOrDefault(c => c.Value == _settings.Camera.Camera);
     }
 
-    async void Device_Changed(object sender, SelectionChangedEventArgs e)
+    async void Device_Changed(object? sender, SelectionChangedEventArgs e)
     {
         if (SelectedDevice is not { } d || Tools.Scrcpy == null) return;
         if (!IsRunning) Status.Text = "Detecting cameras…";
@@ -71,16 +77,16 @@ public partial class CameraWindow : Window
         if (cams.Count == 0) _log(output.Split('\n').LastOrDefault(l => l.Contains("ERROR"))?.Trim() ?? "no cameras listed");
     }
 
-    void Camera_Changed(object sender, SelectionChangedEventArgs e)
+    void Camera_Changed(object? sender, SelectionChangedEventArgs e)
     {
-        if (CameraBox.SelectedValue is string v) _settings.Camera.Camera = v;
+        if (CameraBox.SelectedItem is CameraChoice c) _settings.Camera.Camera = c.Value;
     }
 
-    async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshDevicesAsync();
+    async void Refresh_Click(object? sender, RoutedEventArgs e) => await RefreshDevicesAsync();
 
-    void Start_Click(object sender, RoutedEventArgs e) => _ = StartAsync();
+    void Start_Click(object? sender, RoutedEventArgs e) => _ = StartAsync();
 
-    void Stop_Click(object sender, RoutedEventArgs e) => Stop();
+    void Stop_Click(object? sender, RoutedEventArgs e) => Stop();
 
     public async Task StartAsync()
     {
@@ -93,16 +99,18 @@ public partial class CameraWindow : Window
         var record = _settings.Camera.Record;
         _session = Scrcpy.CreateCamera(d, _settings.Camera, _settings.OutputDir);
         _session.Log += _log;
-        _session.Ended += unexpected => Dispatcher.Invoke(() =>
+        _session.Ended += unexpected => Dispatcher.UIThread.Post(() =>
         {
             _session = null;
             Status.Text = unexpected ? "Interrupted (see log)" : "Stopped";
             StartButton.IsEnabled = true;
             if (record) _notifySaved("Camera recording saved", _settings.OutputDir);
+            _onStateChanged?.Invoke();
         });
         Status.Text = $"Running · {d.Display}";
         StartButton.IsEnabled = false;
         _session.Start();
+        _onStateChanged?.Invoke();
     }
 
     public void Stop() => _session?.Stop();
@@ -114,9 +122,9 @@ public partial class CameraWindow : Window
     }
 
     /// <summary>Closing the window only hides it: the camera keeps running until stopped.</summary>
-    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    protected override void OnClosing(WindowClosingEventArgs e)
     {
-        if (!_shuttingDown)
+        if (!_shuttingDown && e.CloseReason is not (WindowCloseReason.OSShutdown or WindowCloseReason.ApplicationShutdown))
         {
             e.Cancel = true;
             Hide();

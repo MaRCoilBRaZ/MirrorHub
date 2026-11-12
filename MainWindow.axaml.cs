@@ -1,12 +1,14 @@
 ﻿using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
-using System.Text.RegularExpressions;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Interop;
-using System.Windows.Media.Imaging;
-using System.Windows.Threading;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using QRCoder;
 
 namespace MirrorHub;
@@ -30,94 +32,154 @@ public partial class MainWindow : Window
     readonly Dictionary<string, string> _hwIds = new();              // adb serial -> hardware id
     readonly Dictionary<string, int> _sdks = new();                  // adb serial -> Android API level
     readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
-    readonly GlobalHotkeys _hotkeys;
+    readonly IGlobalHotkeys _hotkeys;
+    readonly IDisposable? _signalReg;
+    readonly HashSet<string> _noPermLogged = new();
     List<Device> _devices = [];
     Dictionary<string, Device> _online = new();
-    bool _refreshing, _firstRefresh = true, _exiting;
+    bool _refreshing, _firstRefresh = true, _exiting, _cleanedUp;
     CameraWindow? _camera;
 
     public MainWindow()
     {
         InitializeComponent();
+
         VideoCodecBox.ItemsSource = new[] { "h264", "h265", "av1" };
         AudioCodecBox.ItemsSource = new[] { "opus", "aac", "flac", "raw" };
-        HwDecBox.ItemsSource = new[] { "auto", "d3d11va", "disabled" };
+        HwDecBox.ItemsSource = Os.HwDecoders;
         RenderFitBox.ItemsSource = new[] { "letterbox", "stretched", "unscaled" };
-        AirResBox.ItemsSource = new[] { "1280x720@60", "1920x1080@60", "2560x1440@60", "3840x2160@60" };
-        AirSinkBox.ItemsSource = new[] { "auto", "d3d11videosink", "d3d12videosink" };
+        var airResFlyout = new MenuFlyout();
+        foreach (var res in new[] { "1280x720@60", "1920x1080@60", "2560x1440@60", "3840x2160@60" })
+        {
+            var r = res;
+            var mi = new MenuItem { Header = r };
+            mi.Click += (_, _) =>
+            {
+                _settings.AirPlayResolution = r;
+                RebindAirPlay();
+                SaveSettings();
+                UpdateQualityChoices();
+            };
+            airResFlyout.Items.Add(mi);
+        }
+        AirResPickBtn.Flyout = airResFlyout;
+        AirSinkBox.ItemsSource = Os.AirPlaySinks;
         AirCountBox.ItemsSource = Enumerable.Range(1, UxPlay.MaxReceivers).ToArray();
+
+        StartAtLoginCheck.Content = Os.StartAtLoginLabel;
+        MinimizedAtLogonItem.Content = OperatingSystem.IsWindows() ? "Only when started by Windows" : "Only when started at login";
+        FirewallPanel.IsVisible = Os.HasFirewallSetup;
+        AirAdvancedHint.Text = Os.AirPlayAdvancedHint;
+        SettingsPathHint.Text = $"Options apply immediately. Settings are stored in {Os.SettingsPathHint}.";
+
+        AndroidDropGrid.AddHandler(DragDrop.DragOverEvent, Android_DragOver);
+        AndroidDropGrid.AddHandler(DragDrop.DropEvent, Android_Drop);
+
         DataContext = _settings;
         MinimizedModeBox.SelectedIndex = (int)_settings.MinimizedMode;
         BuildQualityChoices();
         RebuildProfiles(null);
 
-        // The window handle exists even while the window is hidden in the notification area.
-        _hotkeys = new GlobalHotkeys(new WindowInteropHelper(this).EnsureHandle());
+        _hotkeys = Os.CreateHotkeys();
         BuildHotkeyEditors();
         RegisterHotkeys();
         InitTray();
-        Application.Current.SessionEnding += (_, _) => _exiting = true;   // never block Windows logoff
+        UpdateTrayAvailabilityUi();
+        _signalReg = Os.RegisterShutdownSignals(() => Dispatcher.UIThread.Post(ExitApp));
 
-        try { Startup.Apply(_settings.StartWithWindows); }
-        catch (Exception ex) { Log("Start with Windows not updated: " + ex.Message); }
+        try { Os.ApplyAutostart(_settings.StartWithWindows); }
+        catch (Exception ex) { Log($"Start with {Os.Name} not updated: " + ex.Message); }
 
         Log($"adb: {Tools.Adb}");
         Log(Tools.Scrcpy != null
             ? $"scrcpy: {Tools.Scrcpy}"
-            : "scrcpy not found. Install it with: winget install Genymobile.scrcpy");
+            : OperatingSystem.IsWindows()
+                ? "scrcpy not found. Install it with: winget install Genymobile.scrcpy"
+                : "scrcpy not found. Install scrcpy with your package manager or place it in tools/scrcpy/.");
         Log(Tools.UxPlay != null
             ? $"uxplay: {Tools.UxPlay}"
             : "uxplay not found: iPhone/iPad mirroring unavailable.");
         if (Tools.Scrcpy == null && Tools.UxPlay == null)
-            Dispatcher.BeginInvoke(() => MessageBox.Show(this, Tools.MissingToolsHint, "MirrorHub",
-                MessageBoxButton.OK, MessageBoxImage.Warning));
+        {
+            var hint = OperatingSystem.IsWindows()
+                ? Tools.MissingToolsHint
+                : Tools.MissingToolsHint + "\n\n" + Tools.MissingUxPlayHint;
+            Dispatcher.UIThread.Post(() => _ = MessageDialog.ShowAsync(this, hint, "MirrorHub"));
+        }
 
         _poll.Tick += async (_, _) => await RefreshDevices();
-        Dispatcher.BeginInvoke(async () =>
+        Dispatcher.UIThread.Post(async () =>
         {
             await RefreshDevices();
             _poll.Start();
             if (Startup.HasArg(Startup.AirAudioArg)) await StartAirPlay(interactive: false, audioOnly: true);
             else if (_settings.AirPlayAutoStart || Startup.HasArg(Startup.AirPlayArg)) await StartAirPlay(interactive: false);
+
+            if (Program.PendingStartupCommand is { } cmdName && AppCommands.FindByName(cmdName) is { } cmd)
+                cmd.Execute(this);
         });
     }
 
     // ---------- window / startup ----------
 
-    /// <summary>Shows the window, or keeps it minimized / hidden according to the settings.</summary>
-    public void ShowAtStartup()
+    void UpdateTrayAvailabilityUi()
     {
+        var available = _tray?.IsAvailable ?? true;
+        MinimizeToTrayCheck.IsEnabled = available;
+        CloseToTrayCheck.IsEnabled = available;
+        TrayUsageHint.IsVisible = available;
+        NoTrayHint.IsVisible = !available;
+    }
+
+    bool CheckTrayAvailable()
+    {
+        var available = _tray?.RefreshAvailability() ?? true;
+        UpdateTrayAvailabilityUi();
+        return available;
+    }
+
+    /// <summary>Shows the window, or keeps it minimized / hidden according to the settings. True if Show() was called.</summary>
+    public bool ShowAtStartup()
+    {
+        var trayAvailable = _tray?.IsAvailable ?? true;
         if (Startup.HasArg(Startup.RestartArg))
         {
-            if (Startup.HasArg(Startup.ShowArg) || !_settings.MinimizeToTray) Show();   // as it was before the restart
-            return;
+            if (Startup.HasArg(Startup.ShowArg) || !_settings.MinimizeToTray || !trayAvailable) { Show(); return true; }
+            return false;
         }
         var minimized = _settings.MinimizedMode == StartMinimizedMode.Always ||
                         (_settings.MinimizedMode == StartMinimizedMode.AtLogon && Startup.LaunchedAtLogon);
-        if (!minimized) { Show(); return; }
-        if (_settings.MinimizeToTray) return;          // stays in the notification area only
+        if (!minimized) { Show(); return true; }
+        if (_settings.MinimizeToTray && trayAvailable) return false;    // stays in the notification area only
         WindowState = WindowState.Minimized;
         Show();
+        return true;
     }
 
     public void ShowFromTray()
     {
-        Show();
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime d && d.MainWindow == null)
+            d.MainWindow = this;
+        if (!IsVisible) Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate();
     }
 
-    void ToggleWindow()
+    public void ToggleWindow()
     {
         if (IsVisible && WindowState != WindowState.Minimized && IsActive) Hide();
         else ShowFromTray();
     }
 
-    void ExitApp()
+    public void ExitApp()
     {
         _exiting = true;
-        Close();
+        Cleanup();
+        LaunchRestartIfRequested();
+        (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
     }
+
+    public void OnAppShutdown() => Cleanup();
 
     string[]? _restartArgs;   // set by RestartApp: start a new instance with these once we have closed
 
@@ -132,15 +194,23 @@ public partial class MainWindow : Window
         ExitApp();
     }
 
-    protected override void OnStateChanged(EventArgs e)
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
-        base.OnStateChanged(e);
-        if (WindowState == WindowState.Minimized && _settings.MinimizeToTray) Hide();
+        base.OnPropertyChanged(change);
+        if (change.Property == WindowStateProperty && WindowState == WindowState.Minimized &&
+            _settings.MinimizeToTray && CheckTrayAvailable())
+            Hide();
     }
 
-    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    protected override void OnClosing(WindowClosingEventArgs e)
     {
-        if (!_exiting && _settings.CloseToTray)
+        if (e.CloseReason is WindowCloseReason.OSShutdown or WindowCloseReason.ApplicationShutdown)
+        {
+            Cleanup();
+            base.OnClosing(e);
+            return;
+        }
+        if (!_exiting && _settings.CloseToTray && CheckTrayAvailable())
         {
             e.Cancel = true;
             Hide();
@@ -148,47 +218,69 @@ public partial class MainWindow : Window
             return;
         }
 
+        Cleanup();
+        base.OnClosing(e);
+        LaunchRestartIfRequested();
+        (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
+    }
+
+    void Cleanup()
+    {
+        if (_cleanedUp) return;
+        _cleanedUp = true;
+        _exiting = true;
         _poll.Stop();
+        _signalReg?.Dispose();
         _hotkeys.Clear();
+        (_hotkeys as IDisposable)?.Dispose();
         try { _settings.Save(); } catch { }
         foreach (var s in _sessions.Values.ToList()) s.Stop();
         StopAllAir();
         _camera?.Shutdown();
         Adb.StopBundledServer();
+        Os.KillChildren();
         DisposeTray();
-        base.OnClosing(e);
-        if (_restartArgs != null && Environment.ProcessPath is { } exe)
-        {
-            // The new instance waits until this one has exited (single-instance mutex).
-            try { Process.Start(exe, _restartArgs); }
-            catch (Exception ex) { MessageBox.Show("MirrorHub could not restart: " + ex.Message, "MirrorHub"); }
-        }
+    }
+
+    void LaunchRestartIfRequested()
+    {
+        if (_restartArgs == null || Environment.ProcessPath is not { } exe) return;
+        var args = _restartArgs;
+        _restartArgs = null;
+        try { Process.Start(exe, args); }
+        catch (Exception ex) { _ = MessageDialog.ShowAsync(null, "MirrorHub could not restart: " + ex.Message, "MirrorHub"); }
     }
 
     // ---------- helpers ----------
 
-    void Log(string msg) => Dispatcher.BeginInvoke(() =>
+    void Log(string msg) => Dispatcher.UIThread.Post(() =>
     {
         var line = $"{DateTime.Now:HH:mm:ss}  {msg}\n";
-        if (LogBox.Text.Length > 100_000) LogBox.Text = LogBox.Text[^50_000..];
-        LogBox.AppendText(line);
-        LogBox.ScrollToEnd();
+        var cur = LogBox.Text ?? "";
+        if (cur.Length > 100_000) cur = cur[^50_000..];
+        var next = cur + line;
+        LogBox.Text = next;
+        LogBox.CaretIndex = next.Length;
         LogFile.Append(line);
     });
 
-    void CopyLog()
+    async void CopyLog()
     {
         var header = $"MirrorHub {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)} ·{Environment.OSVersion.VersionString}\n" +
                      $"Folder: {AppContext.BaseDirectory}\n";
         try
         {
-            Clipboard.SetText(header + LogBox.Text);
-            Log("Log copied: paste it in a message (Ctrl+V).");
+            var clip = TopLevel.GetTopLevel(this)?.Clipboard;
+            if (clip != null)
+            {
+                await clip.SetTextAsync(header + (LogBox.Text ?? ""));
+                Log("Log copied: paste it in a message (Ctrl+V).");
+            }
         }
         catch (Exception ex) { Log("Could not copy the log: " + ex.Message); }
     }
 
-    void CopyLog_Click(object sender, RoutedEventArgs e) => CopyLog();
+    void CopyLog_Click(object? sender, RoutedEventArgs e) => CopyLog();
 
     /// <summary>The selected device if online, otherwise the first online one.</summary>
     Device? TargetDevice()
@@ -234,10 +326,10 @@ public partial class MainWindow : Window
     void OpenOutputFolder()
     {
         Directory.CreateDirectory(_settings.OutputDir);
-        Process.Start("explorer.exe", _settings.OutputDir);
+        Os.OpenFolder(_settings.OutputDir, Log);
     }
 
-    static void OpenFile(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+    void OpenFile(string path) => Os.OpenFile(path, Log);
 
     // ---------- devices ----------
 
@@ -248,6 +340,12 @@ public partial class MainWindow : Window
         try
         {
             var devices = await Adb.DevicesAsync();
+            foreach (var d in devices)
+            {
+                if (d.State == "no permissions" && _noPermLogged.Add(d.Serial) &&
+                    Os.NoUsbPermissionHint(d.Serial) is { } hint)
+                    Log(hint);
+            }
             _devices = devices;
             var online = devices.Where(d => d.State == "device").ToDictionary(d => d.Serial);
             foreach (var d in online.Values) await HwIdAsync(d);
@@ -273,6 +371,7 @@ public partial class MainWindow : Window
             if (items.SequenceEqual(current)) return;   // avoid flicker / selection loss
             DeviceList.ItemsSource = items;
             DeviceList.SelectedItem = items.FirstOrDefault(i => i.Device.Serial == selected) ?? items.FirstOrDefault();
+            InvalidateTray();
         }
         finally { _refreshing = false; }
     }
@@ -299,7 +398,7 @@ public partial class MainWindow : Window
         StartMirror(d);
     }
 
-    void DeviceList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    void DeviceList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         // Show the settings that apply to the selected device.
         if (DeviceList.SelectedItem is not DeviceItem item) return;
@@ -348,13 +447,14 @@ public partial class MainWindow : Window
         {
             if (n == 1) Notify(_settings.Notify.MirrorEvents, "Connection lost", $"{d.Model}: reconnecting…");
         };
-        session.Ended += unexpected => Dispatcher.Invoke(() =>
+        session.Ended += unexpected => Dispatcher.UIThread.Post(() =>
         {
             _sessions.Remove(d.Serial);
             _audioOnly.Remove(d.Serial);
             if (unexpected) Notify(_settings.Notify.MirrorEvents, audioOnly ? "Phone audio stopped" : "Mirroring stopped",
                 $"{d.Model}: could not reconnect.");
             if (options.Record && !audioOnly) Notify(_settings.Notify.FileSaved, "Recording saved", _settings.OutputDir, OpenOutputFolder);
+            InvalidateTray();
             _ = RefreshDevices();
         });
         _sessions[d.Serial] = session;
@@ -364,11 +464,12 @@ public partial class MainWindow : Window
             Log($"{d.Model}: audio only (no video, no window). Stop it with ■ Stop or from the icon menu.");
         }
         session.Start();
+        InvalidateTray();
         _ = RefreshDevices();
         return true;
     }
 
-    void ToggleAudioOnly(Device? d = null)
+    public void ToggleAudioOnly(Device? d = null)
     {
         d ??= TargetDevice();
         if (d == null) return;
@@ -376,9 +477,9 @@ public partial class MainWindow : Window
         else StartMirror(d, audioOnly: true);
     }
 
-    void AudioOnly_Click(object sender, RoutedEventArgs e) => ToggleAudioOnly();
+    void AudioOnly_Click(object? sender, RoutedEventArgs e) => ToggleAudioOnly();
 
-    void ToggleMirror(Device? d = null)
+    public void ToggleMirror(Device? d = null)
     {
         d ??= TargetDevice();
         if (d == null) return;
@@ -386,17 +487,17 @@ public partial class MainWindow : Window
         else StartMirror(d);   // explains what to do if audio only is running
     }
 
-    void Start_Click(object sender, RoutedEventArgs e)
+    void Start_Click(object? sender, RoutedEventArgs e)
     {
         if (TargetDevice() is { } d) StartMirror(d);
     }
 
-    void Stop_Click(object sender, RoutedEventArgs e)
+    void Stop_Click(object? sender, RoutedEventArgs e)
     {
         if (TargetDevice() is { } d && SessionSerialFor(d) is { } serial) _sessions[serial].Stop();
     }
 
-    async Task TakeScreenshot(Device? d = null)
+    public async Task TakeScreenshot(Device? d = null)
     {
         d ??= TargetDevice();
         if (d == null) return;
@@ -410,9 +511,9 @@ public partial class MainWindow : Window
         else Log("Screenshot failed.");
     }
 
-    async void Screenshot_Click(object sender, RoutedEventArgs e) => await TakeScreenshot();
+    async void Screenshot_Click(object? sender, RoutedEventArgs e) => await TakeScreenshot();
 
-    void OpenFolder_Click(object sender, RoutedEventArgs e) => OpenOutputFolder();
+    void OpenFolder_Click(object? sender, RoutedEventArgs e) => OpenOutputFolder();
 
     // ---------- profiles ----------
 
@@ -426,16 +527,16 @@ public partial class MainWindow : Window
         ProfileBox.SelectedItem = items.FirstOrDefault(i => i.Key == select) ?? items[0];
     }
 
-    void ProfileBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    void ProfileBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (ProfileBox.SelectedItem is not ProfileItem item) return;
         MirrorOptionsPanel.DataContext = _settings.OptionsFor(item.Key);
         ProfileNote.Text = item.Key != null ? $"These are the settings of the profile \"{_settings.Profiles[item.Key].Name}\"." : "";
-        ProfileNote.Visibility = item.Key != null ? Visibility.Visible : Visibility.Collapsed;
+        ProfileNote.IsVisible = item.Key != null;
         UpdateQualityChoices();
     }
 
-    async void CreateProfile_Click(object sender, RoutedEventArgs e)
+    async void CreateProfile_Click(object? sender, RoutedEventArgs e)
     {
         if (TargetDevice() is not { } d) return;
         var hw = await HwIdAsync(d);
@@ -450,12 +551,11 @@ public partial class MainWindow : Window
         _ = RefreshDevices();
     }
 
-    void DeleteProfile_Click(object sender, RoutedEventArgs e)
+    async void DeleteProfile_Click(object? sender, RoutedEventArgs e)
     {
         if (ProfileBox.SelectedItem is not ProfileItem { Key: { } key }) { Log("The default settings cannot be deleted."); return; }
         var name = _settings.Profiles[key].Name;
-        if (MessageBox.Show(this, $"Delete the profile of {name}?", "MirrorHub",
-                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (!await MessageDialog.ShowAsync(this, $"Delete the profile of {name}?", "MirrorHub", yesNo: true)) return;
         _settings.Profiles.Remove(key);
         _settings.Save();
         RebuildProfiles(null);
@@ -468,7 +568,7 @@ public partial class MainWindow : Window
     {
         foreach (var p in paths)
         {
-            var name = Path.GetFileName(p.TrimEnd('\\'));
+            var name = Path.GetFileName(p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             if (File.Exists(p) && p.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
             {
                 Log($"Installing {name} on {d.Model}…");
@@ -484,42 +584,53 @@ public partial class MainWindow : Window
         }
     }
 
-    async void InstallApk_Click(object sender, RoutedEventArgs e)
+    async void InstallApk_Click(object? sender, RoutedEventArgs e)
     {
         if (TargetDevice() is not { } d) return;
-        var dlg = new Microsoft.Win32.OpenFileDialog
+        var top = TopLevel.GetTopLevel(this);
+        if (top == null) return;
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = $"Install APK on {d.Model}", Filter = "Android apps (*.apk)|*.apk", Multiselect = true,
-        };
-        if (dlg.ShowDialog(this) == true) await InstallOrPush(d, dlg.FileNames);
+            Title = $"Install APK on {d.Model}",
+            AllowMultiple = true,
+            FileTypeFilter = [new FilePickerFileType("Android apps") { Patterns = ["*.apk"] }],
+        });
+        var paths = files.Select(f => f.TryGetLocalPath()).Where(p => p != null).Cast<string>().ToList();
+        if (paths.Count > 0) await InstallOrPush(d, paths);
     }
 
-    async void SendFiles_Click(object sender, RoutedEventArgs e)
+    async void SendFiles_Click(object? sender, RoutedEventArgs e)
     {
         if (TargetDevice() is not { } d) return;
-        var dlg = new Microsoft.Win32.OpenFileDialog
+        var top = TopLevel.GetTopLevel(this);
+        if (top == null) return;
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = $"Send files to {d.Model} (Download folder)", Filter = "All files (*.*)|*.*", Multiselect = true,
-        };
-        if (dlg.ShowDialog(this) == true) await InstallOrPush(d, dlg.FileNames);
+            Title = $"Send files to {d.Model} (Download folder)",
+            AllowMultiple = true,
+            FileTypeFilter = [FilePickerFileTypes.All],
+        });
+        var paths = files.Select(f => f.TryGetLocalPath()).Where(p => p != null).Cast<string>().ToList();
+        if (paths.Count > 0) await InstallOrPush(d, paths);
     }
 
-    void Android_DragOver(object sender, DragEventArgs e)
+    void Android_DragOver(object? sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
-    async void Android_Drop(object sender, DragEventArgs e)
+    async void Android_Drop(object? sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files || TargetDevice() is not { } d) return;
-        await InstallOrPush(d, files);
+        if (TargetDevice() is not { } d) return;
+        var files = e.DataTransfer.TryGetFiles()?.Select(f => f.TryGetLocalPath()).Where(p => p != null).Cast<string>().ToList();
+        if (files is { Count: > 0 }) await InstallOrPush(d, files);
     }
 
-    async void StartApp_Click(object sender, RoutedEventArgs e)
+    async void StartApp_Click(object? sender, RoutedEventArgs e)
     {
         if (TargetDevice() is not { } d || Tools.Scrcpy == null) return;
-        if (AppPicker.Pick(this, d) is not { } app) return;
+        if (await AppPicker.PickAsync(this, d) is not { } app) return;
         if (IsMirroring(d))
         {
             var (rc, o) = await Adb.LaunchAppAsync(d.Serial, app.Package);
@@ -531,7 +642,10 @@ public partial class MainWindow : Window
     // ---------- camera ----------
 
     CameraWindow Camera => _camera ??= new CameraWindow(_settings, Log,
-        (title, text) => Notify(_settings.Notify.FileSaved, title, text, OpenOutputFolder));
+        (title, text) => Notify(_settings.Notify.FileSaved, title, text, OpenOutputFolder),
+        InvalidateTray);
+
+    public void ToggleCamera() => Camera.Toggle();
 
     void OpenCamera()
     {
@@ -541,7 +655,7 @@ public partial class MainWindow : Window
         w.Activate();
     }
 
-    void OpenCamera_Click(object sender, RoutedEventArgs e) => OpenCamera();
+    void OpenCamera_Click(object? sender, RoutedEventArgs e) => OpenCamera();
 
     // ---------- connection ----------
 
@@ -570,21 +684,21 @@ public partial class MainWindow : Window
         }
     }
 
-    async void ConnectIp_Click(object sender, RoutedEventArgs e)
+    async void ConnectIp_Click(object? sender, RoutedEventArgs e)
     {
-        var addr = Prompt.Ask(this, "Connect over Wi-Fi", "IP:port (e.g. 192.168.1.20:5555)");
+        var addr = await Prompt.AskAsync(this, "Connect over Wi-Fi", "IP:port (e.g. 192.168.1.20:5555)");
         if (string.IsNullOrEmpty(addr)) return;
         if (!addr.Contains(':')) addr += ":5555";
         Log((await Adb.RunAsync("connect", addr)).Out);
         await RefreshDevices();
     }
 
-    async void PairCode_Click(object sender, RoutedEventArgs e)
+    async void PairCode_Click(object? sender, RoutedEventArgs e)
     {
-        var addr = Prompt.Ask(this, "Pair with code",
+        var addr = await Prompt.AskAsync(this, "Pair with code",
             "Wireless debugging → Pair device with pairing code.\nPairing IP:port:");
         if (string.IsNullOrEmpty(addr)) return;
-        var code = Prompt.Ask(this, "Pair with code", "6-digit code:");
+        var code = await Prompt.AskAsync(this, "Pair with code", "6-digit code:");
         if (string.IsNullOrEmpty(code)) return;
 
         var (rc, o) = await Adb.RunAsync(20000, "pair", addr, code);
@@ -593,7 +707,7 @@ public partial class MainWindow : Window
         await RefreshDevices();
     }
 
-    async void PairQr_Click(object sender, RoutedEventArgs e)
+    async void PairQr_Click(object? sender, RoutedEventArgs e)
     {
         // Android 11+ "Pair device with QR code" format, as used by Android Studio.
         var name = "MirrorHub-" + RandomNumberGenerator.GetHexString(6, lowercase: true);
@@ -601,21 +715,23 @@ public partial class MainWindow : Window
         var png = new PngByteQRCode(new QRCodeGenerator()
             .CreateQrCode($"WIFI:T:ADB;S:{name};P:{password};;", QRCodeGenerator.ECCLevel.M)).GetGraphic(8);
 
-        var image = new BitmapImage();
-        image.BeginInit();
-        image.CacheOption = BitmapCacheOption.OnLoad;
-        image.StreamSource = new MemoryStream(png);
-        image.EndInit();
+        using var ms = new MemoryStream(png);
+        var image = new Bitmap(ms);
 
         var status = new TextBlock
         {
             Text = "On the phone: Developer options → Wireless debugging → Pair device with QR code. PC and phone must be on the same Wi-Fi.",
-            TextWrapping = TextWrapping.Wrap, MaxWidth = 320, Margin = new Thickness(10),
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            MaxWidth = 320,
+            Margin = new Thickness(10),
         };
         var win = new Window
         {
-            Title = "Pair with QR", Owner = this, SizeToContent = SizeToContent.WidthAndHeight,
-            ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Title = "Pair with QR",
+            Icon = Icon ?? DialogHelpers.LoadAppIcon(),
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = new StackPanel
             {
                 Children = { new Image { Source = image, Width = 320, Height = 320, Margin = new Thickness(10) }, status },
@@ -624,7 +740,7 @@ public partial class MainWindow : Window
 
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         win.Closed += (_, _) => cts.Cancel();
-        win.Show();
+        win.Show(this);
         try
         {
             var svc = await WaitMdns(s => s.Name == name && s.Type.Contains("pairing"), cts.Token);
@@ -647,7 +763,7 @@ public partial class MainWindow : Window
         await RefreshDevices();
     }
 
-    async void UsbToWifi_Click(object sender, RoutedEventArgs e)
+    async void UsbToWifi_Click(object? sender, RoutedEventArgs e)
     {
         var d = Selected();
         if (d == null) return;
@@ -662,7 +778,7 @@ public partial class MainWindow : Window
         await RefreshDevices();
     }
 
-    async void Disconnect_Click(object sender, RoutedEventArgs e)
+    async void Disconnect_Click(object? sender, RoutedEventArgs e)
     {
         var d = Selected();
         if (d == null) return;

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 
@@ -7,9 +6,12 @@ namespace MirrorHub;
 /// <summary>iPhone/iPad mirroring: UxPlay as an AirPlay receiver.</summary>
 static class UxPlay
 {
-    const string FirewallRule = "MirrorHub AirPlay (UxPlay)";
+    public const string FirewallRule = "MirrorHub AirPlay (UxPlay)";
 
     public const int MaxReceivers = 4;
+
+    static readonly Version MinH265Version = new(1, 70, 0);
+    static readonly Version MinRecordVersion = new(1, 73, 0);
 
     /// <summary>How many receivers to run: one per iPhone/iPad mirrored at the same time.</summary>
     public static int ReceiverCount(Settings s) => Math.Clamp(s.AirPlayReceivers, 1, MaxReceivers);
@@ -29,20 +31,36 @@ static class UxPlay
         return string.Join(":", h.Take(6).Select(b => b.ToString("x2")));
     }
 
+    static string ReceiverDir(int slot) =>
+        Path.Combine(AppPaths.DataDir, slot == 1 ? "uxplay" : $"uxplay-{slot}");
+
+    public static bool SupportsH265() =>
+        Os.GetUxPlayVersion() is not { } v || v.Version >= MinH265Version;
+
+    public static bool SupportsRecording() =>
+        Os.GetUxPlayVersion() is not { } v || v.Version >= MinRecordVersion;
+
+    public static void LogUnsupportedOptions(Settings s, bool audioOnly, Action<string> log)
+    {
+        if (audioOnly || Os.GetUxPlayVersion() is not { } v) return;
+        if (s.AirPlayH265 && v.Version < MinH265Version)
+            log($"[AirPlay] UxPlay {v.Text} does not support H.265 (needs 1.70 or newer): option ignored.");
+        if (s.AirPlayRecord && v.Version < MinRecordVersion)
+            log($"[AirPlay] UxPlay {v.Text} does not support recording (needs 1.73 or newer): option ignored.");
+    }
+
     public static WatchedProcess Create(Settings s, int slot, bool audioOnly, Func<bool> restartOnCrash)
     {
-        // UxPlay keeps its key in $HOME: a stable HOME keeps the server identity
-        // (and PIN pairings) across restarts. One folder per receiver.
-        var home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MirrorHub",
-                                slot == 1 ? "uxplay" : $"uxplay-{slot}");
+        // Per-receiver folder: used for HOME on Windows and -key / gst-registry on Linux.
+        var home = ReceiverDir(slot);
         Directory.CreateDirectory(home);
         var bin = Path.GetDirectoryName(Tools.UxPlay)!;
         var env = new Dictionary<string, string>
         {
-            ["HOME"] = home,
-            // GStreamer and the other DLLs live next to uxplay.exe.
-            ["PATH"] = bin + ";" + Environment.GetEnvironmentVariable("PATH"),
+            // GStreamer and the other shared libraries live next to uxplay.
+            ["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
         };
+        Os.ConfigureUxPlayEnv(env, home);
         if (Tools.UxPlayIsBundled)
         {
             // Use only the bundled GStreamer plugins, even if another GStreamer is installed.
@@ -50,10 +68,10 @@ static class UxPlay
             env["GST_PLUGIN_PATH"] = "";
             env["GST_PLUGIN_PATH_1_0"] = "";
             env["GST_PLUGIN_SYSTEM_PATH_1_0"] = Path.Combine(root, "lib", "gstreamer-1.0");
-            env["GST_PLUGIN_SCANNER_1_0"] = Path.Combine(root, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe");
+            env["GST_PLUGIN_SCANNER_1_0"] = Path.Combine(root, "libexec", "gstreamer-1.0", Os.Exe("gst-plugin-scanner"));
             env["GST_REGISTRY_1_0"] = Path.Combine(home, "gst-registry.bin");
         }
-        return new WatchedProcess(Tools.UxPlay!, () => Args(s, slot, audioOnly), restartOnCrash, env);
+        return new WatchedProcess(Tools.UxPlay!, () => Args(s, slot, audioOnly, home), restartOnCrash, env);
     }
 
     /// <summary>UxPlay prints this once it is listening.</summary>
@@ -63,24 +81,26 @@ static class UxPlay
 
     public static bool IsValidPin(string? pin) => pin != null && Regex.IsMatch(pin, @"^\d{4}$") && pin != "0000";
 
-    static IEnumerable<string> Args(Settings s, int slot, bool audioOnly)
+    static IEnumerable<string> Args(Settings s, int slot, bool audioOnly, string receiverDir)
     {
+        var hasPin = IsValidPin(s.AirPlayPin);
         yield return "-n"; yield return NameFor(s, slot);
         yield return "-nh";
         if (slot > 1) { yield return "-m"; yield return MacFor(slot); }
+        foreach (var extra in Os.UxPlayExtraArgs(slot, receiverDir, hasPin)) yield return extra;
         if (audioOnly)
         {
             // No window: in Screen Mirroring the iPhone sends only 1 frame/s, which is not shown;
             // AirPlay audio from a music app (Apple Lossless) works as usual.
             yield return "-vs"; yield return "0";
             if (s.AirPlayNoHold) yield return "-nohold";
-            if (IsValidPin(s.AirPlayPin)) { yield return "-pin"; yield return s.AirPlayPin; }
+            if (hasPin) { yield return "-pin"; yield return s.AirPlayPin; }
             yield break;
         }
         yield return "-s"; yield return s.AirPlayResolution;
         // AirPlay screen mirroring goes up to 60 fps: with a higher maxFPS the iPhone ignores the receiver.
         yield return "-fps"; yield return Math.Clamp(s.AirPlayFps, 1, MaxFps).ToString();
-        if (s.AirPlayH265) yield return "-h265";
+        if (s.AirPlayH265 && SupportsH265()) yield return "-h265";
         if (s.AirPlayVideoSink != "auto") { yield return "-vs"; yield return s.AirPlayVideoSink; }
         if (s.AirPlayFullscreen) yield return "-fs";
         if (s.AirPlayLowLatency) { yield return "-vsync"; yield return "no"; }
@@ -90,8 +110,8 @@ static class UxPlay
             yield return "-vsync"; yield return Math.Clamp(s.AirPlayAudioDelayMs, -999, 999).ToString();
         }
         if (s.AirPlayNoHold) yield return "-nohold";
-        if (IsValidPin(s.AirPlayPin)) { yield return "-pin"; yield return s.AirPlayPin; }
-        if (s.AirPlayRecord)
+        if (hasPin) { yield return "-pin"; yield return s.AirPlayPin; }
+        if (s.AirPlayRecord && SupportsRecording())
         {
             Directory.CreateDirectory(s.OutputDir);
             // UxPlay appends ".<n>.<format>.mp4".
@@ -99,76 +119,11 @@ static class UxPlay
         }
     }
 
-    static string Q(string s) => "'" + s.Replace("'", "''") + "'";
-
     /// <summary>What could stop the iPhone from finding this PC.</summary>
     public sealed record Preflight(List<string> PublicNetworks, bool FirewallOk, string Networks);
 
-    /// <summary>
-    /// Checks the networks that reach the router (VPNs such as Tailscale are ignored) and the
-    /// firewall: our Allow rule must point to this uxplay.exe and no Block rule may exist for it
-    /// (Windows creates those when its first-run prompt is dismissed). No admin rights needed.
-    /// </summary>
-    public static async Task<Preflight> CheckAsync()
-    {
-        var exe = Q(Tools.UxPlay ?? "");
-        var script =
-            "$n = @(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetProfile } | " +
-            "  ForEach-Object { $_.InterfaceAlias + '=' + $_.NetProfile.NetworkCategory }) -join '|'; " +
-            $"$allow = @(Get-NetFirewallRule -DisplayName {Q(FirewallRule)} -ErrorAction SilentlyContinue | " +
-            "  Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Allow' } | Get-NetFirewallApplicationFilter | " +
-            $"  Where-Object {{ $_.Program -eq {exe} }}).Count; " +
-            $"$block = @(Get-NetFirewallApplicationFilter -Program {exe} -ErrorAction SilentlyContinue | Get-NetFirewallRule | " +
-            "  Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Block' }).Count; " +
-            "\"$n`n$allow`n$block\"";
-        var psi = new ProcessStartInfo("powershell.exe")
-        {
-            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
-        };
-        psi.ArgumentList.Add("-NoProfile");
-        psi.ArgumentList.Add("-Command");
-        psi.ArgumentList.Add(script);
-        try
-        {
-            using var p = Process.Start(psi)!;
-            var lines = (await p.StandardOutput.ReadToEndAsync()).Replace("\r", "").Split('\n');
-            await p.WaitForExitAsync();
-            var nets = lines[0].Trim();
-            var pub = nets.Split('|', StringSplitOptions.RemoveEmptyEntries)
-                .Where(x => x.EndsWith("=Public")).Select(x => x[..x.LastIndexOf('=')]).ToList();
-            var ok = lines.Length > 2 && lines[1].Trim() != "0" && lines[2].Trim() == "0";
-            return new Preflight(pub, ok, nets.Replace("|", "; ").Replace("=", ": "));
-        }
-        catch (Exception ex) { return new Preflight([], true, "unknown (" + ex.Message + ")"); }
-    }
+    public static Task<Preflight> CheckAsync() => Os.CheckAirPlayNetworkAsync();
 
-    /// <summary>
-    /// One UAC prompt that sets the given networks to Private and/or replaces every firewall rule
-    /// for uxplay.exe with one inbound Allow rule for Private networks. False if the user said no.
-    /// </summary>
-    public static async Task<bool> FixAsync(IEnumerable<string> makePrivate, bool firewall)
-    {
-        var cmd = string.Concat(makePrivate.Select(a =>
-            $"Set-NetConnectionProfile -InterfaceAlias {Q(a)} -NetworkCategory Private -ErrorAction SilentlyContinue; "));
-        if (firewall)
-        {
-            var exe = Q(Tools.UxPlay!);
-            cmd += $"Get-NetFirewallApplicationFilter -Program {exe} -ErrorAction SilentlyContinue | Get-NetFirewallRule | Remove-NetFirewallRule; " +
-                   $"Remove-NetFirewallRule -DisplayName {Q(FirewallRule)} -ErrorAction SilentlyContinue; " +
-                   $"New-NetFirewallRule -DisplayName {Q(FirewallRule)} -Direction Inbound -Action Allow " +
-                   $"-Profile Private -Program {exe} | Out-Null";
-        }
-        if (cmd.Length == 0) return true;
-        var psi = new ProcessStartInfo("powershell.exe") { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
-        psi.ArgumentList.Add("-NoProfile");
-        psi.ArgumentList.Add("-Command");
-        psi.ArgumentList.Add(cmd);
-        try
-        {
-            using var p = Process.Start(psi)!;
-            await p.WaitForExitAsync();
-            return true;
-        }
-        catch (System.ComponentModel.Win32Exception) { return false; }   // UAC prompt declined
-    }
+    public static Task<bool> FixAsync(IEnumerable<string> makePrivate, bool firewall) =>
+        Os.FixAirPlayNetworkAsync(makePrivate, firewall);
 }

@@ -8,7 +8,7 @@ namespace MirrorHub;
 /// </summary>
 static class LogFile
 {
-    static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MirrorHub");
+    static readonly string Dir = AppPaths.DataDir;
     static readonly string FilePath = Path.Combine(Dir, "mirrorhub.log");
     static bool _started, _failed;
 

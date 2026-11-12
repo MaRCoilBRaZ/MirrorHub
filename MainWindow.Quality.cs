@@ -1,6 +1,10 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace MirrorHub;
 
@@ -41,11 +45,11 @@ public partial class MainWindow
         AirAdvanced.IsExpanded = _settings.ShowAirPlayAdvanced;
 
         // An edit in the advanced fields can turn the choice into "Custom" (or back into a preset).
-        foreach (var panel in new UIElement[] { AndroidAdvanced, AirAdvanced })
+        foreach (var panel in new Control[] { AndroidAdvanced, AirAdvanced })
         {
-            panel.AddHandler(LostFocusEvent, new RoutedEventHandler((_, _) => QueueChoiceUpdate()));
-            panel.AddHandler(Selector.SelectionChangedEvent, new SelectionChangedEventHandler((_, _) => QueueChoiceUpdate()));
-            panel.AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler((_, _) => QueueChoiceUpdate()));
+            panel.AddHandler(LostFocusEvent, (_, _) => QueueChoiceUpdate());
+            panel.AddHandler(SelectingItemsControl.SelectionChangedEvent, (_, _) => QueueChoiceUpdate());
+            panel.AddHandler(Button.ClickEvent, (_, _) => QueueChoiceUpdate());
         }
         _choicesBuilt = true;
         UpdateQualityChoices();
@@ -53,25 +57,21 @@ public partial class MainWindow
 
     RadioButton AddChoice(Panel parent, string group, string name, string description, Action? apply)
     {
+        var tb = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        tb.Inlines!.Add(new Run(name) { FontWeight = FontWeight.SemiBold });
+        tb.Inlines.Add(new Run("  —  " + description) { Foreground = Brushes.Gray });
+
         var radio = new RadioButton
         {
             GroupName = group,
             Margin = new Thickness(0, 0, 0, 6),
             IsEnabled = apply != null,      // "Custom" is only a state, chosen by editing the advanced values
-            Content = new TextBlock
-            {
-                TextWrapping = TextWrapping.Wrap,
-                Inlines =
-                {
-                    new System.Windows.Documents.Run(name) { FontWeight = FontWeights.SemiBold },
-                    new System.Windows.Documents.Run("  —  " + description) { Foreground = System.Windows.Media.Brushes.Gray },
-                },
-            },
+            Content = tb,
         };
         if (apply != null)
-            radio.Checked += (_, _) =>
+            radio.IsCheckedChanged += (_, _) =>
             {
-                if (_updatingChoices) return;
+                if (_updatingChoices || radio.IsChecked != true) return;
                 apply();
                 SaveSettings();
                 UpdateQualityChoices();
@@ -80,7 +80,7 @@ public partial class MainWindow
         return radio;
     }
 
-    void QueueChoiceUpdate() => Dispatcher.BeginInvoke(UpdateQualityChoices, System.Windows.Threading.DispatcherPriority.Background);
+    void QueueChoiceUpdate() => Dispatcher.UIThread.Post(UpdateQualityChoices, DispatcherPriority.Background);
 
     void UpdateQualityChoices()
     {
@@ -97,7 +97,7 @@ public partial class MainWindow
         {
             var match = choices.FirstOrDefault(c => c.Matches()).Radio ?? custom;
             match.IsChecked = true;
-            custom.Visibility = match == custom ? Visibility.Visible : Visibility.Collapsed;
+            custom.IsVisible = match == custom;
         }
     }
 
@@ -115,9 +115,9 @@ public partial class MainWindow
         AirPanel.DataContext = _settings;
     }
 
-    void Advanced_Toggled(object sender, RoutedEventArgs e)
+    void Advanced_Toggled(object? sender, RoutedEventArgs e)
     {
-        if (!_choicesBuilt || e.OriginalSource != sender) return;
+        if (!_choicesBuilt || e.Source != sender) return;
         _settings.ShowAndroidAdvanced = AndroidAdvanced.IsExpanded;
         _settings.ShowAirPlayAdvanced = AirAdvanced.IsExpanded;
         SaveSettings();

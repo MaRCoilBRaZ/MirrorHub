@@ -1,8 +1,8 @@
 # MirrorHub
 
-**Mirror and control your Android phone, and receive AirPlay from your iPhone/iPad, on Windows. Free, open source, no app needed on the phone.**
+**Mirror and control your Android phone, and receive AirPlay from your iPhone/iPad, on Windows and Linux. Free, open source, no app needed on the phone.**
 
-MirrorHub is a Windows desktop app that brings together two excellent open-source engines behind one simple interface:
+MirrorHub is a desktop app for Windows and Linux that brings together two excellent open-source engines behind one simple interface:
 
 - **Android** → [scrcpy](https://github.com/Genymobile/scrcpy): low-latency mirroring over USB or Wi-Fi, with audio and full mouse/keyboard control.
 - **iPhone / iPad** → [UxPlay](https://github.com/FDH2/UxPlay): an AirPlay screen-mirroring receiver.
@@ -28,16 +28,16 @@ MirrorHub is a Windows desktop app that brings together two excellent open-sourc
 - **Several iPhones/iPads at the same time** (up to 4): each receiver has its own name (MirrorHub, MirrorHub 2…) and its own window
 - **Sound delay** to line up sound and picture, and a **lowest latency** mode for games
 - Quality presets (Full HD, 1440p, 4K), optional PIN, custom name, D3D12/D3D11 rendering, `.mp4` recording
-- Checks before starting: if the network is Public or the firewall blocks the receiver, it offers to fix it (one administrator prompt)
+- Checks before starting: on Windows, if the network is Public or the firewall blocks the receiver, it offers to fix it (one administrator prompt); on Linux it checks avahi-daemon and firewalld and shows the commands to run
 - Clear status and error messages; falls back to the automatic renderer if the chosen one does not work on the PC
 
 **App**
-- Notification-area icon with a right-click menu to control everything, including **Restart**
-- Start with Windows, start minimized, close to tray, single instance
+- Notification-area / system-tray icon with a menu to control everything, including **Restart**
+- Start with Windows / at login, start minimized, close to tray, single instance
 - Notifications you can turn on/off per event
-- **Customizable global keyboard shortcuts**
-- **Copy log** button; the log is also saved to `%AppData%\MirrorHub\mirrorhub.log`
-- Leaves nothing running on exit: scrcpy, UxPlay and adb end together with MirrorHub, even if it is closed from Task Manager
+- **Customizable global keyboard shortcuts** (Windows); on Linux, bind `MirrorHub --command ...` in your desktop's keyboard settings (see below)
+- **Copy log** button; the log is also saved to `%AppData%\MirrorHub\mirrorhub.log` (Linux: `~/.config/MirrorHub/mirrorhub.log`)
+- Leaves nothing running on exit: scrcpy, UxPlay and adb end together with MirrorHub (on Windows even if it is closed from Task Manager)
 
 ## Download
 
@@ -45,6 +45,18 @@ Get the latest `MirrorHub-vX.Y.Z-win-x64.zip` from [Releases](../../releases), e
 Everything is included (scrcpy, adb, UxPlay, GStreamer): nothing to install. Windows 10/11 x64.
 
 > Windows SmartScreen may warn about an unrecognized app because the executable is not code-signed: click **More info → Run anyway**.
+
+**Linux** (x86-64, X11 or Wayland): get `MirrorHub-vX.Y.Z-linux-x64.tar.gz`, then
+
+```bash
+tar -xzf MirrorHub-vX.Y.Z-linux-x64.tar.gz
+./MirrorHub/install.sh     # optional: adds MirrorHub to the applications menu
+./MirrorHub/MirrorHub
+```
+
+scrcpy and adb are included. For iPhone/iPad install UxPlay from your distribution, e.g. on Debian/Ubuntu:
+`sudo apt install uxplay gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl avahi-daemon`
+(UxPlay 1.70+ for H.265, 1.73+ for recording).
 
 ## Quick start
 
@@ -62,21 +74,37 @@ For sound only, use **♪ Audio only** instead of Start receiver. For more iPhon
 
 Shortcuts inside the Android mirror window come from scrcpy, e.g. `Alt+F` fullscreen, `Alt+H` home, `Alt+B` back, `Alt+O` turn the phone screen off.
 
+**On Linux**
+- USB: install the Android udev rules (Debian/Ubuntu: `sudo apt install android-sdk-platform-tools-common`), then replug the phone; otherwise it shows as "no permissions".
+- iPhone/iPad: `avahi-daemon` must be running. With a firewall, allow mDNS and the receiver ports 7000-7011 (TCP and UDP), e.g. `sudo ufw allow 5353/udp && sudo ufw allow 7000:7011/tcp && sudo ufw allow 7000:7011/udp`.
+- Tray icon: on GNOME it needs the *AppIndicator and KStatusNotifierItem Support* extension (included in Ubuntu). Without a tray, closing the window quits MirrorHub.
+
+## Command line
+
+A running MirrorHub can be controlled from scripts or from your desktop's keyboard shortcuts:
+
+```
+MirrorHub --command <show | toggle-window | toggle-mirror | toggle-audio-only | toggle-airplay | toggle-airplay-audio | toggle-camera | screenshot | exit>
+```
+
+If MirrorHub is not running yet, it starts and then runs the command. On Linux, where apps cannot register system-wide shortcuts, *Settings* lists these commands ready to copy.
+
 ## Build from source
 
-Requirements: Windows 10/11, [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
+Requirements: [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0). The UI is [Avalonia](https://avaloniaui.net/); one project builds both versions.
 
-```powershell
+```bash
 git clone https://github.com/MaRCoilBRaZ/MirrorHub.git
 cd MirrorHub
-dotnet run -c Release
+dotnet run -c Release -f net8.0-windows   # Windows
+dotnet run -c Release -f net8.0           # Linux
 ```
 
 At runtime MirrorHub looks for the external tools in this order:
 
-1. `tools\` next to `MirrorHub.exe` (the layout of the release package)
-2. `PATH` (e.g. `winget install Genymobile.scrcpy`)
-3. `C:\msys64\ucrt64\bin\uxplay.exe` for UxPlay built with MSYS2
+1. `tools/` next to the executable (the layout of the release packages)
+2. `PATH` (e.g. `winget install Genymobile.scrcpy`, or your Linux package manager)
+3. Windows only: the WinGet package folder, and `C:\msys64\ucrt64\bin\uxplay.exe` for UxPlay built with MSYS2
 
 To build UxPlay yourself (MSYS2 UCRT64 shell):
 
@@ -87,19 +115,20 @@ cmake -B build -G Ninja && ninja -C build && cmake --install build --prefix /ucr
 ```
 
 `packaging/bundle-uxplay.sh` turns that build into a self-contained folder (exe, DLLs and only the GStreamer plugins UxPlay uses).
-The [release workflow](.github/workflows/release.yml) does all of this on every `v*` tag and publishes the zip.
+The [release workflow](.github/workflows/release.yml) does all of this on every `v*` tag, builds the Linux package too (with a start-up smoke test) and publishes both.
 
 ## Project layout
 
 | Path | What |
 |---|---|
-| `MainWindow*.cs`, `*.xaml` | UI (WPF): Android, iPhone/iPad and Settings tabs, tray icon, hotkeys |
+| `MainWindow*.cs`, `*.axaml` | UI (Avalonia): Android, iPhone/iPad and Settings tabs, tray menu, hotkeys |
+| `Program.cs`, `AppCommands.cs` | Single instance and the `--command` channel (named pipe) |
+| `Platform/Windows/`, `Platform/Linux/` | Everything OS-specific behind `Os`: tray, global hotkeys, autostart, child-process cleanup, AirPlay network checks |
 | `Scrcpy.cs`, `Adb.cs` | Android: scrcpy arguments, adb commands, app and camera listing |
-| `UxPlay.cs` | iPhone/iPad: UxPlay arguments, environment, network/firewall check and fix |
+| `UxPlay.cs` | iPhone/iPad: UxPlay arguments and environment |
 | `WatchedProcess.cs` | Runs scrcpy/UxPlay with a watchdog (restart with exponential backoff) |
-| `ChildProcesses.cs` | Job object that ends every started tool (and the adb server) when MirrorHub exits |
-| `Settings.cs` | Settings, device profiles, quality presets (`%AppData%\MirrorHub\settings.json`) |
-| `packaging/` | UxPlay bundling script, release readme, third-party notices |
+| `Settings.cs` | Settings, device profiles, quality presets (`%AppData%\MirrorHub\settings.json`, Linux `~/.config/MirrorHub`) |
+| `packaging/` | UxPlay bundling script, Linux install script, release readmes, third-party notices |
 
 ## License
 

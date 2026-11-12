@@ -1,0 +1,85 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MirrorHub.CameraWindow"
+        Title="MirrorHub – Phone camera" Icon="/app.ico"
+        SizeToContent="Height" Width="560" CanResize="False"
+        WindowStartupLocation="CenterScreen">
+    <Window.Styles>
+        <Style Selector="Button">
+            <Setter Property="Margin" Value="0,0,6,6"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="Margin" Value="0,0,16,8"/>
+        </Style>
+        <Style Selector="TextBlock.Lbl">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,6"/>
+        </Style>
+    </Window.Styles>
+
+    <StackPanel Margin="14">
+        <TextBlock x:Name="Status" Text="Stopped" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10"/>
+        <WrapPanel>
+            <Button x:Name="StartButton" Content="▶ Start camera" FontWeight="SemiBold" Click="Start_Click"/>
+            <Button Content="■ Stop" Click="Stop_Click"/>
+        </WrapPanel>
+
+        <Grid Margin="0,8,0,0" ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Device" Classes="Lbl"/>
+            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="DeviceBox" SelectionChanged="Device_Changed">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Display}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Button Grid.Row="0" Grid.Column="2" Content="Refresh" Margin="6,0,0,6" Click="Refresh_Click"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Camera" Classes="Lbl"/>
+            <ComboBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="CameraBox" SelectionChanged="Camera_Changed">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Label}"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
+
+        <Grid ColumnDefinitions="Auto,*,16,Auto,*" RowDefinitions="Auto,Auto,Auto">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Max resolution (px)" Classes="Lbl"/>
+            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MaxSize, UpdateSourceTrigger=LostFocus}"/>
+            <TextBlock Grid.Row="0" Grid.Column="3" Text="FPS" Classes="Lbl"/>
+            <TextBox Grid.Row="0" Grid.Column="4" Text="{Binding Fps, UpdateSourceTrigger=LostFocus}"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Zoom (e.g. 1.5)" Classes="Lbl"/>
+            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Zoom, UpdateSourceTrigger=LostFocus}"/>
+            <TextBlock Grid.Row="1" Grid.Column="3" Text="Rotation (°)" Classes="Lbl"/>
+            <ComboBox Grid.Row="1" Grid.Column="4" x:Name="OrientationBox" SelectedItem="{Binding Orientation}"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Video codec" Classes="Lbl"/>
+            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="CodecBox" SelectedItem="{Binding VideoCodec}"/>
+            <TextBlock Grid.Row="2" Grid.Column="3" Text="Bitrate (Mbps)" Classes="Lbl"/>
+            <TextBox Grid.Row="2" Grid.Column="4" Text="{Binding BitRateMbps, UpdateSourceTrigger=LostFocus}"/>
+        </Grid>
+
+        <WrapPanel Margin="0,6,0,0">
+            <CheckBox Content="Mirror (selfie view)" IsChecked="{Binding Flip}"/>
+            <CheckBox Content="Phone microphone" IsChecked="{Binding Microphone}"/>
+            <CheckBox Content="Torch on" IsChecked="{Binding Torch}"/>
+            <CheckBox Content="Always on top" IsChecked="{Binding AlwaysOnTop}"/>
+            <CheckBox Content="Borderless" IsChecked="{Binding Borderless}"/>
+            <CheckBox Content="Record (.mkv)" IsChecked="{Binding Record}"/>
+        </WrapPanel>
+
+        <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="0,8,0,0"
+                   Text="Requires Android 12 or later. The video opens in a &quot;MirrorHub Camera&quot; window. To use it as a webcam (Zoom, Teams, Discord…): in OBS add a &quot;Window Capture&quot; source on that window, then &quot;Start Virtual Camera&quot;. Changes apply from the next start."/>
+    </StackPanel>
+</Window>

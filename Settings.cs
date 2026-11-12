@@ -108,8 +108,7 @@ public sealed class Settings
     public Dictionary<string, DeviceProfile> Profiles { get; set; } = new();
     public CameraOptions Camera { get; set; } = new();
 
-    public string OutputDir { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "MirrorHub");
+    public string OutputDir { get; set; } = AppPaths.DefaultOutputDir;
 
     // iPhone / iPad (AirPlay receiver)
     public string AirPlayName { get; set; } = "MirrorHub";
@@ -131,8 +130,7 @@ public sealed class Settings
     public MirrorOptions OptionsFor(string? hwId) =>
         hwId != null && Profiles.TryGetValue(hwId, out var p) ? p.Options : Mirror;
 
-    static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MirrorHub", "settings.json");
+    static readonly string FilePath = Path.Combine(AppPaths.DataDir, "settings.json");
 
     public static Settings Load()
     {
@@ -140,6 +138,10 @@ public sealed class Settings
         try { s = JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) ?? new(); }
         catch { s = new(); }
         foreach (var a in HotkeyActions.All) s.Hotkeys.TryAdd(a.Id, a.Default);   // actions added in later versions
+        if (!Os.HwDecoders.Contains(s.Mirror.HwDec)) s.Mirror.HwDec = "auto";
+        foreach (var p in s.Profiles.Values)
+            if (!Os.HwDecoders.Contains(p.Options.HwDec)) p.Options.HwDec = "auto";
+        if (!Os.AirPlaySinks.Contains(s.AirPlayVideoSink)) s.AirPlayVideoSink = "auto";
         return s;
     }
 

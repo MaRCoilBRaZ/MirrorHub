@@ -1,8 +1,8 @@
-using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace MirrorHub;
 
@@ -12,10 +12,10 @@ namespace MirrorHub;
 /// </summary>
 public partial class MainWindow
 {
-    static readonly Brush Gray = Brushes.DimGray;
-    static readonly Brush Orange = new SolidColorBrush(Color.FromRgb(0xB5, 0x6A, 0x00));
-    static readonly Brush Green = new SolidColorBrush(Color.FromRgb(0x1E, 0x7B, 0x34));
-    static readonly Brush Red = new SolidColorBrush(Color.FromRgb(0xC0, 0x1C, 0x28));
+    static readonly IBrush Gray = Brushes.DimGray;
+    static readonly IBrush Orange = new SolidColorBrush(Color.FromRgb(0xB5, 0x6A, 0x00));
+    static readonly IBrush Green = new SolidColorBrush(Color.FromRgb(0x1E, 0x7B, 0x34));
+    static readonly IBrush Red = new SolidColorBrush(Color.FromRgb(0xC0, 0x1C, 0x28));
 
     /// <summary>One running uxplay process.</summary>
     sealed class AirReceiver(int slot, string name)
@@ -28,7 +28,8 @@ public partial class MainWindow
         public bool VideoBroken;           // UxPlay reported that it cannot build the video pipeline
         public bool Restarting;
         public string? Client;             // name of the connected iPhone/iPad
-        public readonly Queue<string> Tail = new();   // last output lines, shown when something fails
+        public readonly Queue<string> Tail = new();         // last output lines, shown when something fails
+        public readonly List<string> EarlyLines = new();    // first lines before Ready, for early failure diagnosis
     }
 
     readonly List<AirReceiver> _air = new();
@@ -43,7 +44,7 @@ public partial class MainWindow
 
     string LogPrefix(AirReceiver r) => _air.Count > 1 || r.Slot > 1 ? $"[AirPlay {r.Slot}] " : "[AirPlay] ";
 
-    void SetAirStatus(string text, Brush color)
+    void SetAirStatus(string text, IBrush color)
     {
         AirStatus.Text = text;
         AirStatus.Foreground = color;
@@ -52,6 +53,7 @@ public partial class MainWindow
     /// <summary>Status line(s) from the state of every receiver.</summary>
     void UpdateAirStatus()
     {
+        InvalidateTray();
         if (_air.Count == 0)
         {
             if (_airFailedStatus != null) SetAirStatus(_airFailedStatus, Red);
@@ -99,47 +101,14 @@ public partial class MainWindow
             b.Click += (_, _) => action();
             AirProblemActions.Children.Add(b);
         }
-        AirProblemActions.Visibility = actions.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        AirProblem.Visibility = Visibility.Visible;
+        AirProblemActions.IsVisible = actions.Length > 0;
+        AirProblem.IsVisible = true;
     }
 
-    void HideAirProblem() => AirProblem.Visibility = Visibility.Collapsed;
+    void HideAirProblem() => AirProblem.IsVisible = false;
 
-    /// <summary>
-    /// Network and firewall check. When <paramref name="interactive"/>, offers to fix what is wrong
-    /// (one administrator prompt). Whatever is still wrong is shown in the problem box.
-    /// </summary>
-    async Task CheckAirPlayNetwork(bool interactive)
-    {
-        var pf = await UxPlay.CheckAsync();
-        Log("Networks: " + (pf.Networks.Length > 0 ? pf.Networks : "none") +
-            (pf.FirewallOk ? " · firewall OK" : " · firewall rule missing or blocked"));
-
-        if (interactive && (pf.PublicNetworks.Count > 0 || !pf.FirewallOk))
-        {
-            var msg = "So that the iPhone/iPad can find this PC, Windows needs:\n\n";
-            if (pf.PublicNetworks.Count > 0)
-                msg += $"•  the network \"{string.Join("\", \"", pf.PublicNetworks)}\" set as Private (now it is Public). " +
-                       "Do this only on your home network, not on public Wi-Fi.\n";
-            if (!pf.FirewallOk) msg += "•  permission in the Windows firewall for the receiver.\n";
-            msg += "\nFix it now? Windows will ask for administrator permission.";
-            if (MessageBox.Show(this, msg, "MirrorHub", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-            {
-                if (await UxPlay.FixAsync(pf.PublicNetworks, !pf.FirewallOk)) pf = await UxPlay.CheckAsync();
-                else Log("Administrator permission not given: network and firewall unchanged.");
-            }
-        }
-
-        var problems = new List<string>();
-        if (pf.PublicNetworks.Count > 0)
-            problems.Add($"The network \"{string.Join("\", \"", pf.PublicNetworks)}\" is Public: the iPhone will not see this PC.");
-        if (!pf.FirewallOk)
-            problems.Add("The Windows firewall does not allow the receiver: the iPhone may not see this PC.");
-        if (problems.Count > 0)
-            ShowAirProblem(string.Join("\n", problems), ("Fix (administrator)", () => _ = CheckAirPlayNetwork(true)));
-        else if (AirStatus.Foreground != Red)
-            HideAirProblem();
-    }
+    Task CheckAirPlayNetwork(bool interactive) =>
+        Os.RunAirPlayPreflightAsync(this, interactive, Log, ShowAirProblem, HideAirProblem, () => AirStatus.Foreground != Red);
 
     async Task StartAirPlay(bool interactive = true, bool audioOnly = false)
     {
@@ -161,7 +130,7 @@ public partial class MainWindow
         if (Tools.UxPlay == null)
         {
             SetAirStatus("Receiver not available", Red);
-            ShowAirProblem(Tools.MissingToolsHint);
+            ShowAirProblem(Tools.MissingUxPlayHint);
             return;
         }
         if (_settings.AirPlayPin.Length > 0 && !UxPlay.IsValidPin(_settings.AirPlayPin))
@@ -177,13 +146,14 @@ public partial class MainWindow
         _airBusy = true;
         try
         {
-            SetAirStatus("Checking network and firewall…", Gray);
+            if (Os.HasFirewallSetup) SetAirStatus("Checking network and firewall…", Gray);
             await CheckAirPlayNetwork(interactive);
         }
         finally { _airBusy = false; }
 
+        UxPlay.LogUnsupportedOptions(_settings, audioOnly, Log);
         _airAudioOnly = audioOnly;
-        _airRecord = _settings.AirPlayRecord && !audioOnly;
+        _airRecord = _settings.AirPlayRecord && !audioOnly && UxPlay.SupportsRecording();
         _airSink = audioOnly ? "auto" : _settings.AirPlayVideoSink;   // no renderer fallback without video
 
         for (var slot = 1; slot <= count; slot++)
@@ -194,14 +164,14 @@ public partial class MainWindow
             {
                 if (m.Contains(UxPlay.ReadyLine)) r.Ready = true;
                 Log(LogPrefix(r) + m);
-                Dispatcher.BeginInvoke(() => OnAirPlayLog(r, m));
+                Dispatcher.UIThread.Post(() => OnAirPlayLog(r, m));
             };
             session.Restarting += _ =>
             {
                 r.Ready = false;
-                Dispatcher.BeginInvoke(() => { r.Restarting = true; r.Client = null; UpdateAirStatus(); });
+                Dispatcher.UIThread.Post(() => { r.Restarting = true; r.Client = null; UpdateAirStatus(); });
             };
-            session.Ended += unexpected => Dispatcher.BeginInvoke(() => OnAirPlayEnded(r, unexpected));
+            session.Ended += unexpected => Dispatcher.UIThread.Post(() => OnAirPlayEnded(r, unexpected));
             r.Process = session;
             _air.Add(r);
         }
@@ -211,6 +181,7 @@ public partial class MainWindow
 
     void OnAirPlayLog(AirReceiver r, string line)
     {
+        if (!r.EverReady && r.EarlyLines.Count < 100) r.EarlyLines.Add(line);
         r.Tail.Enqueue(line);
         while (r.Tail.Count > 8) r.Tail.Dequeue();
 
@@ -240,7 +211,8 @@ public partial class MainWindow
             r.Client = m.Groups[1].Value;
             UpdateAirStatus();
             Notify(_settings.Notify.AirPlayClient, "iPhone / iPad connected", $"{r.Client} ({m.Groups[2].Value}) → \"{r.Name}\"");
-            if (!_airAudioOnly) _ = RetitleAirWindow(r);
+            if (!_airAudioOnly)
+                _ = Os.RetitleAirWindowAsync(() => r.Process?.ProcessId, $"MirrorHub - {r.Client} ({r.Name})", () => r.Client != null && _air.Contains(r));
         }
         else if (line.Contains("lost connection with client"))
         {
@@ -268,16 +240,12 @@ public partial class MainWindow
         var tail = string.Join("\n", r.Tail.Where(l => !l.Contains(" exited (code")).TakeLast(5));
         var who = _air.Count > 0 || r.Slot > 1 ? $"The receiver \"{r.Name}\"" : "The receiver";
 
-        // 0xC000001D = STATUS_ILLEGAL_INSTRUCTION: the build uses CPU instructions this PC lacks.
-        // Changing the renderer cannot help.
-        if (r.Tail.Any(l => l.Contains("exited (code -1073741795)")))
+        if (Os.DiagnoseAirPlayFailure(r.EarlyLines, r.Tail) is { } diagnosis)
         {
             StopAllAir();
-            _airFailedStatus = "The receiver is not compatible with this PC's processor";
+            _airFailedStatus = diagnosis.Status;
             UpdateAirStatus();
-            ShowAirProblem("The AirPlay receiver crashed because it uses processor instructions this PC does not support.\n\n" +
-                           "Download the latest MirrorHub version. If it still happens, click \"Copy log\" and send it to the developer.",
-                           ("Copy log", CopyLog));
+            ShowAirProblem(diagnosis.Problem, ("Copy log", CopyLog));
             return;
         }
 
@@ -310,59 +278,26 @@ public partial class MainWindow
     }
 
     /// <summary>Stops the receivers if they run in this mode, otherwise starts them (or switches to this mode).</summary>
-    void ToggleAirPlay(bool audioOnly = false)
+    public void ToggleAirPlay(bool audioOnly = false)
     {
         if (AirRunning && _airAudioOnly == audioOnly) { _airStartNext = null; StopAllAir(); }
         else _ = StartAirPlay(audioOnly: audioOnly);
     }
 
-    async void AirStart_Click(object sender, RoutedEventArgs e) => await StartAirPlay();
+    async void AirStart_Click(object? sender, RoutedEventArgs e) => await StartAirPlay();
 
-    async void AirAudio_Click(object sender, RoutedEventArgs e) => await StartAirPlay(audioOnly: true);
+    async void AirAudio_Click(object? sender, RoutedEventArgs e) => await StartAirPlay(audioOnly: true);
 
-    void AirStop_Click(object sender, RoutedEventArgs e) { _airStartNext = null; StopAllAir(); }
+    void AirStop_Click(object? sender, RoutedEventArgs e) { _airStartNext = null; StopAllAir(); }
 
-    async void Firewall_Click(object sender, RoutedEventArgs e)
+    async void Firewall_Click(object? sender, RoutedEventArgs e)
     {
-        if (Tools.UxPlay == null) { ShowAirProblem(Tools.MissingToolsHint); return; }
+        if (Tools.UxPlay == null) { ShowAirProblem(Tools.MissingUxPlayHint); return; }
         if (await UxPlay.FixAsync([], firewall: true))
         {
             Log("Firewall rule \"MirrorHub AirPlay (UxPlay)\" set (Private networks only).");
             await CheckAirPlayNetwork(false);
         }
         else Log("Firewall setup cancelled.");
-    }
-
-    // ---------- video window title ----------
-
-    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
-    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
-    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool SetWindowText(IntPtr hWnd, string text);
-    delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-    /// <summary>
-    /// The renderer window opens a moment after the iPhone connects and has a generic title; name it
-    /// after the receiver and the iPhone, so several windows can be told apart.
-    /// </summary>
-    async Task RetitleAirWindow(AirReceiver r)
-    {
-        for (var i = 0; i < 40 && r.Client != null && _air.Contains(r); i++)
-        {
-            await Task.Delay(500);
-            if (r.Process?.ProcessId is not { } pid) continue;
-            var title = $"MirrorHub - {r.Client} ({r.Name})";
-            var found = false;
-            EnumWindows((h, _) =>
-            {
-                if (GetWindowThreadProcessId(h, out var p) != 0 && p == pid && IsWindowVisible(h))
-                {
-                    SetWindowText(h, title);
-                    found = true;
-                }
-                return true;
-            }, IntPtr.Zero);
-            if (found) return;
-        }
     }
 }
