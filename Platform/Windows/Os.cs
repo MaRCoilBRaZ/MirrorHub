@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Avalonia.Controls;
 using Microsoft.Win32;
@@ -143,37 +146,90 @@ static class Os
 
     static string Q(string s) => "'" + s.Replace("'", "''") + "'";
 
-    public static async Task<UxPlay.Preflight> CheckAirPlayNetworkAsync()
+    // The check uses the Windows APIs directly (tens of ms); the PowerShell cmdlets took 4-8 s per start.
+    public static Task<UxPlay.Preflight> CheckAirPlayNetworkAsync() => Task.Run(() =>
     {
-        var exe = Q(Tools.UxPlay ?? "");
-        var script =
-            "$n = @(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetProfile } | " +
-            "  ForEach-Object { $_.InterfaceAlias + '=' + $_.NetProfile.NetworkCategory }) -join '|'; " +
-            $"$allow = @(Get-NetFirewallRule -DisplayName {Q(UxPlay.FirewallRule)} -ErrorAction SilentlyContinue | " +
-            "  Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Allow' } | Get-NetFirewallApplicationFilter | " +
-            $"  Where-Object {{ $_.Program -eq {exe} }}).Count; " +
-            $"$block = @(Get-NetFirewallApplicationFilter -Program {exe} -ErrorAction SilentlyContinue | Get-NetFirewallRule | " +
-            "  Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Block' }).Count; " +
-            "\"$n`n$allow`n$block\"";
-        var psi = new ProcessStartInfo("powershell.exe")
-        {
-            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
-        };
-        psi.ArgumentList.Add("-NoProfile");
-        psi.ArgumentList.Add("-Command");
-        psi.ArgumentList.Add(script);
         try
         {
-            using var p = Process.Start(psi)!;
-            var lines = (await p.StandardOutput.ReadToEndAsync()).Replace("\r", "").Split('\n');
-            await p.WaitForExitAsync();
-            var nets = lines[0].Trim();
-            var pub = nets.Split('|', StringSplitOptions.RemoveEmptyEntries)
-                .Where(x => x.EndsWith("=Public")).Select(x => x[..x.LastIndexOf('=')]).ToList();
-            var ok = lines.Length > 2 && lines[1].Trim() != "0" && lines[2].Trim() == "0";
-            return new UxPlay.Preflight(pub, ok, nets.Replace("|", "; ").Replace("=", ": "));
+            var nets = ConnectedNetworks();
+            var pub = nets.Where(n => n.Category == "Public").Select(n => n.Alias).ToList();
+            var (allow, block) = UxPlayFirewallRules();
+            return new UxPlay.Preflight(pub, allow > 0 && block == 0,
+                                        string.Join("; ", nets.Select(n => $"{n.Alias}: {n.Category}")));
         }
         catch (Exception ex) { return new UxPlay.Preflight([], true, "unknown (" + ex.Message + ")"); }
+    });
+
+    static readonly Guid NetworkListManagerClsid = new("DCB00C01-570F-4A9B-8D69-199FDBA5723B");
+
+    /// <summary>
+    /// Category (Public/Private/DomainAuthenticated) of the adapters with an IPv4 default gateway, by adapter
+    /// name ("Wi-Fi"), as Get-NetIPConfiguration did: VPN adapters such as Tailscale have no gateway and are
+    /// left out, and the name is what Set-NetConnectionProfile -InterfaceAlias needs for the fix.
+    /// </summary>
+    static List<(string Alias, string Category)> ConnectedNetworks()
+    {
+        var withGateway = new Dictionary<Guid, string>();
+        foreach (var n in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (n.OperationalStatus != OperationalStatus.Up || !Guid.TryParse(n.Id, out var id)) continue;
+            if (n.GetIPProperties().GatewayAddresses.Any(g =>
+                    g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any)))
+                withGateway[id] = n.Name;
+        }
+
+        var result = new List<(string Alias, string Category)>();
+        dynamic nlm = Activator.CreateInstance(Type.GetTypeFromCLSID(NetworkListManagerClsid, throwOnError: true)!)!;
+        try
+        {
+            foreach (dynamic c in nlm.GetNetworkConnections())
+            {
+                // GetAdapterId returns a GUID, which late binding (IDispatch) cannot pass: typed interface.
+                var adapter = ((INetworkConnection)c).GetAdapterId();
+                if (!withGateway.TryGetValue(adapter, out var alias) || result.Any(r => r.Alias == alias)) continue;
+                int category = c.GetNetwork().GetCategory();
+                result.Add((alias, category switch
+                {
+                    0 => "Public", 1 => "Private", 2 => "DomainAuthenticated", _ => category.ToString(),
+                }));
+            }
+        }
+        finally { Marshal.FinalReleaseComObject(nlm); }
+        return result;
+    }
+
+    /// <summary>Enabled firewall rules for uxplay.exe: our Allow rule, and Block rules (e.g. created by Windows).</summary>
+    static (int Allow, int Block) UxPlayFirewallRules()
+    {
+        if (Tools.UxPlay == null) return (0, 0);
+        var exe = Path.GetFullPath(Tools.UxPlay);
+        int allow = 0, block = 0;
+        dynamic fw = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2", throwOnError: true)!)!;
+        try
+        {
+            foreach (dynamic r in fw.Rules)
+            {
+                string? app = r.ApplicationName;
+                if (string.IsNullOrEmpty(app) || !(bool)r.Enabled) continue;
+                if (!string.Equals(Environment.ExpandEnvironmentVariables(app), exe, StringComparison.OrdinalIgnoreCase)) continue;
+                if ((int)r.Action == 1) { if ((string)r.Name == UxPlay.FirewallRule) allow++; }   // 1 = allow
+                else block++;
+            }
+        }
+        finally { Marshal.FinalReleaseComObject(fw); }
+        return (allow, block);
+    }
+
+    // Only the vtable slots before GetAdapterId matter: the placeholders are never called.
+    [ComImport, Guid("DCB00005-570F-4A9B-8D69-199FDBA5723B"), InterfaceType(ComInterfaceType.InterfaceIsDual)]
+    interface INetworkConnection
+    {
+        void GetNetwork();
+        void IsConnectedToInternet();
+        void IsConnected();
+        void GetConnectivity();
+        void GetConnectionId();
+        Guid GetAdapterId();
     }
 
     public static async Task<bool> FixAirPlayNetworkAsync(IEnumerable<string> makePrivate, bool firewall)
