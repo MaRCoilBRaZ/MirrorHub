@@ -308,7 +308,39 @@ public partial class MainWindow : Window
         id = await Adb.HardwareIdAsync(d.Serial);
         if (id != null) _hwIds[d.Serial] = id;
         if (await Adb.SdkAsync(d.Serial) is { } sdk) _sdks[d.Serial] = sdk;
+        // Known before an automatic mirror starts with a codec the phone may lack in hardware.
+        if (id != null) await VideoEncodersIfNeededAsync(d.Serial, id);
         return id;
+    }
+
+    /// <summary>
+    /// Lists the phone's video encoders (once per run, about 1 s) when its options use a codec other than H.264.
+    /// H.264 is never replaced, so with it nothing is listed and the connection is not slowed down.
+    /// </summary>
+    async Task VideoEncodersIfNeededAsync(string serial, string hwId)
+    {
+        if (_settings.OptionsFor(hwId).VideoCodec == "h264" || Scrcpy.CachedVideoEncoders(hwId) != null) return;
+        await Scrcpy.VideoEncodersAsync(serial, hwId);
+        UpdateCodecHint();
+    }
+
+    /// <summary>
+    /// Warns when the options shown use a codec that the phone they apply to lacks in hardware
+    /// (<see cref="EffectiveOptions"/> replaces it at start).
+    /// </summary>
+    void UpdateCodecHint()
+    {
+        string? hw = null, name = null;
+        if (ProfileBox.SelectedItem is ProfileItem { Key: { } key })
+            (hw, name) = (key, _settings.Profiles.GetValueOrDefault(key)?.Name);
+        else if (DeviceList.SelectedItem is DeviceItem item && CachedHwId(item.Device.Serial) is { } id && !_settings.Profiles.ContainsKey(id))
+            (hw, name) = (id, item.Device.Model);   // the defaults apply to the selected phone
+
+        var codec = CurrentMirrorOptions.VideoCodec;
+        var fallback = hw == null ? null : Scrcpy.CachedVideoEncoders(hw)?.FallbackFor(codec);
+        CodecHint.Text = fallback == null ? "" :
+            $"{name}: no hardware {Scrcpy.CodecLabel(codec)} encoder on this phone, so {Scrcpy.CodecLabel(fallback)} will be used.";
+        CodecHint.IsVisible = fallback != null;
     }
 
     string? CachedHwId(string serial) => _hwIds.GetValueOrDefault(serial);
@@ -408,6 +440,7 @@ public partial class MainWindow : Window
         var hw = CachedHwId(item.Device.Serial);
         var key = hw != null && _settings.Profiles.ContainsKey(hw) ? hw : null;
         if ((ProfileBox.SelectedItem as ProfileItem)?.Key != key) RebuildProfiles(key);
+        UpdateCodecHint();
     }
 
     // ---------- mirroring ----------
@@ -464,7 +497,8 @@ public partial class MainWindow : Window
     /// <summary>The options a mirror of this device starts with, or null when it must not start.</summary>
     MirrorOptions? EffectiveOptions(Device d, bool audioOnly, bool log)
     {
-        var options = _settings.OptionsFor(CachedHwId(d.Serial));
+        var hw = CachedHwId(d.Serial);
+        var options = _settings.OptionsFor(hw);
         // Sound on both needs Android 13+. On older devices the option means "leave the sound on the device".
         if (options.AudioOnPhoneToo && _sdks.TryGetValue(d.Serial, out var sdk) && sdk < 33)
         {
@@ -480,6 +514,16 @@ public partial class MainWindow : Window
             if (log)
                 Log($"{d.Model}: Android older than 13 can't play sound on both, so the sound stays on the device " +
                     "(\"Also keep the sound on the phone\" is on).");
+        }
+        // A codec the phone encodes only in software (or not at all) makes the mirror unusable: use one it
+        // has in hardware. The saved settings are kept, for phones that do have it.
+        if (!audioOnly && hw != null && Scrcpy.CachedVideoEncoders(hw)?.FallbackFor(options.VideoCodec) is { } codec)
+        {
+            if (log)
+                Log($"{d.Model}: no hardware {Scrcpy.CodecLabel(options.VideoCodec)} encoder on this phone, " +
+                    $"using {Scrcpy.CodecLabel(codec)} instead.");
+            options = options.Clone();
+            options.VideoCodec = codec;
         }
         return options;
     }

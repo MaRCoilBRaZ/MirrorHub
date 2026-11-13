@@ -95,6 +95,7 @@
 
                                 <TextBlock Text="Quality" Classes="SubHeader"/>
                                 <StackPanel x:Name="AndroidQuality"/>
+                                <TextBlock x:Name="CodecHint" Foreground="#b35c00" TextWrapping="Wrap" Margin="0,0,0,4" IsVisible="False"/>
 
                                 <TextBlock Text="Options" Classes="SubHeader"/>
                                 <WrapPanel>

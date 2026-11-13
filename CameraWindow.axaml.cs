@@ -75,6 +75,32 @@ public partial class CameraWindow : Window
         if (!IsRunning)
             Status.Text = cams.Count > 0 ? $"Stopped · {cams.Count} cameras found" : "Stopped · no cameras detected";
         if (cams.Count == 0) _log(output.Split('\n').LastOrDefault(l => l.Contains("ERROR"))?.Trim() ?? "no cameras listed");
+        await UpdateCodecHintAsync();
+    }
+
+    // Posted: the binding may not have stored the new codec yet when the event is raised.
+    void Codec_Changed(object? sender, SelectionChangedEventArgs e) =>
+        Dispatcher.UIThread.Post(() => _ = UpdateCodecHintAsync());
+
+    /// <summary>
+    /// The codec the camera starts with on this phone: the chosen one, unless the phone lacks it in hardware
+    /// (then H.265 or H.264, see <see cref="VideoEncoders.FallbackFor"/>). The setting itself is kept.
+    /// </summary>
+    static async Task<string> EffectiveCodecAsync(Device d, string chosen)
+    {
+        if (chosen == "h264" || Tools.Scrcpy == null || await Adb.HardwareIdAsync(d.Serial) is not { } hw) return chosen;
+        return (await Scrcpy.VideoEncodersAsync(d.Serial, hw))?.FallbackFor(chosen) ?? chosen;
+    }
+
+    async Task UpdateCodecHintAsync()
+    {
+        var chosen = _settings.Camera.VideoCodec;
+        var d = SelectedDevice;
+        var codec = d == null ? chosen : await EffectiveCodecAsync(d, chosen);
+        if (SelectedDevice != d || _settings.Camera.VideoCodec != chosen) return;   // changed meanwhile
+        CodecHint.Text = d == null || codec == chosen ? "" :
+            $"{d.Model}: no hardware {Scrcpy.CodecLabel(chosen)} encoder on this phone, so {Scrcpy.CodecLabel(codec)} will be used.";
+        CodecHint.IsVisible = CodecHint.Text.Length > 0;
     }
 
     void Camera_Changed(object? sender, SelectionChangedEventArgs e)
@@ -95,9 +121,15 @@ public partial class CameraWindow : Window
         if (SelectedDevice == null) await RefreshDevicesAsync();
         if (SelectedDevice is not { } d) { Status.Text = "No Android device connected"; return; }
 
+        var chosen = _settings.Camera.VideoCodec;
+        var codec = await EffectiveCodecAsync(d, chosen);
+        if (IsRunning) return;   // started meanwhile
+        if (codec != chosen)
+            _log($"{d.Model}: no hardware {Scrcpy.CodecLabel(chosen)} encoder on this phone, using {Scrcpy.CodecLabel(codec)} instead.");
+
         try { _settings.Save(); } catch { }
         var record = _settings.Camera.Record;
-        _session = Scrcpy.CreateCamera(d, _settings.Camera, _settings.OutputDir);
+        _session = Scrcpy.CreateCamera(d, _settings.Camera, _settings.OutputDir, codec);
         _session.Log += _log;
         _session.Ended += unexpected => Dispatcher.UIThread.Post(() =>
         {

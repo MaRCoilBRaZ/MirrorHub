@@ -54,9 +54,13 @@ public partial class MainWindow
         }
 
         // Any edit on a tab can change how a running mirror / receiver should run: checked once the clicks stop.
-        _applyTimer.Tick += (_, _) =>
+        _applyTimer.Tick += async (_, _) =>
         {
             _applyTimer.Stop();
+            // A codec just chosen may be missing in hardware on a connected phone: find out first,
+            // so a running mirror restarts once, with the codec it will really use.
+            await Task.WhenAll(_online.Values.Select(d =>
+                CachedHwId(d.Serial) is { } hw ? VideoEncodersIfNeededAsync(d.Serial, hw) : Task.CompletedTask));
             ApplyAndroidChanges();
             ApplyAirPlayChanges();
         };
@@ -115,6 +119,7 @@ public partial class MainWindow
             Select(_airChoices, _airCustom);
         }
         finally { _updatingChoices = false; }
+        UpdateCodecHint();   // a preset or an advanced edit can change the codec
 
         static void Select(List<(RadioButton Radio, Func<bool> Matches)> choices, RadioButton custom)
         {
