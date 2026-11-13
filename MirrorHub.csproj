@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>0.2.2</Version>
+    <Version>0.2.3</Version>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <!-- Restore evaluates both targets: lets Linux restore/build the project (it still builds net8.0 only when asked). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
