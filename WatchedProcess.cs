@@ -51,6 +51,9 @@ public sealed class WatchedProcess(
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // The tools print UTF-8 (device names like "Dexter’s iPhone"); the default is the system code page.
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardErrorEncoding = System.Text.Encoding.UTF8,
             WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
         if (env != null)
