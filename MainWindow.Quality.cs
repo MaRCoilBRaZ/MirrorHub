@@ -18,6 +18,7 @@ public partial class MainWindow
     readonly List<(RadioButton Radio, Func<bool> Matches)> _airChoices = [];
     RadioButton? _androidCustom, _airCustom;
     bool _updatingChoices, _choicesBuilt;
+    readonly DispatcherTimer _applyTimer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     MirrorOptions CurrentMirrorOptions => MirrorOptionsPanel.DataContext as MirrorOptions ?? _settings.Mirror;
 
@@ -51,6 +52,20 @@ public partial class MainWindow
             panel.AddHandler(SelectingItemsControl.SelectionChangedEvent, (_, _) => QueueChoiceUpdate());
             panel.AddHandler(Button.ClickEvent, (_, _) => QueueChoiceUpdate());
         }
+
+        // Any edit on a tab can change how a running mirror / receiver should run: checked once the clicks stop.
+        _applyTimer.Tick += (_, _) =>
+        {
+            _applyTimer.Stop();
+            ApplyAndroidChanges();
+            ApplyAirPlayChanges();
+        };
+        foreach (var panel in new Control[] { MirrorOptionsPanel, AirPanel })
+        {
+            panel.AddHandler(LostFocusEvent, (_, _) => QueueApplySettings());
+            panel.AddHandler(SelectingItemsControl.SelectionChangedEvent, (_, _) => QueueApplySettings());
+            panel.AddHandler(Button.ClickEvent, (_, _) => QueueApplySettings());
+        }
         _choicesBuilt = true;
         UpdateQualityChoices();
     }
@@ -75,12 +90,20 @@ public partial class MainWindow
                 apply();
                 SaveSettings();
                 UpdateQualityChoices();
+                QueueApplySettings();
             };
         parent.Children.Add(radio);
         return radio;
     }
 
     void QueueChoiceUpdate() => Dispatcher.UIThread.Post(UpdateQualityChoices, DispatcherPriority.Background);
+
+    /// <summary>Restarts what runs with outdated settings 1 s after the last change (several quick clicks = one restart).</summary>
+    void QueueApplySettings()
+    {
+        _applyTimer.Stop();
+        _applyTimer.Start();
+    }
 
     void UpdateQualityChoices()
     {

@@ -28,6 +28,7 @@ public partial class MainWindow
         public bool VideoBroken;           // UxPlay reported that it cannot build the video pipeline
         public bool Restarting;
         public string? Client;             // name of the connected iPhone/iPad
+        public string Key = "";            // UxPlay.SettingsKey it was started with
         public readonly Queue<string> Tail = new();         // last output lines, shown when something fails
         public readonly List<string> EarlyLines = new();    // first lines before Ready, for early failure diagnosis
     }
@@ -41,6 +42,7 @@ public partial class MainWindow
     string _airSink = "auto";
     bool? _airStartNext;            // mode to start once every receiver has stopped (true = audio only)
     string? _airFailedStatus;       // red status shown when nothing is running after a failure
+    bool _airSelectAgain;           // restarted for new settings while an iPhone/iPad was connected: it must pick the receiver again
 
     string LogPrefix(AirReceiver r) => _air.Count > 1 || r.Slot > 1 ? $"[AirPlay {r.Slot}] " : "[AirPlay] ";
 
@@ -78,16 +80,19 @@ public partial class MainWindow
                 !r.EverReady ? "Starting…" :
                 r.Client != null ? $"{(_airAudioOnly ? "Audio only" : "Mirroring")}: {r.Client}" :
                 _airAudioOnly
-                    ? $"Audio only, ready. On the iPhone/iPad: Control Center → Screen Mirroring → \"{r.Name}\" (all sounds), " +
+                    ? (_airSelectAgain ? "New settings applied. " : "") +
+                      $"Audio only, ready. On the iPhone/iPad: Control Center → Screen Mirroring → \"{r.Name}\" (all sounds), " +
                       $"or the AirPlay icon in a music/video app → \"{r.Name}\" (best quality)"
-                    : $"Ready. On the iPhone/iPad: Control Center → Screen Mirroring → \"{r.Name}\"";
+                    : _airSelectAgain
+                        ? $"New settings applied. On the iPhone/iPad select it again: Control Center → Screen Mirroring → \"{r.Name}\""
+                        : $"Ready. On the iPhone/iPad: Control Center → Screen Mirroring → \"{r.Name}\"";
             SetAirStatus(text, color);
             return;
         }
 
-        var header = _airAudioOnly
+        var header = (_airSelectAgain ? "New settings applied: select the receiver again. " : "") + (_airAudioOnly
             ? "Audio only. On each iPhone/iPad: Control Center → Screen Mirroring (or the AirPlay icon in a music app) → a free name:"
-            : "On each iPhone/iPad: Control Center → Screen Mirroring → a free name:";
+            : "On each iPhone/iPad: Control Center → Screen Mirroring → a free name:");
         SetAirStatus(header + "\n" + string.Join("\n", _air.Select(r => $"   •  \"{r.Name}\": {State(r)}")), color);
     }
 
@@ -158,7 +163,7 @@ public partial class MainWindow
 
         for (var slot = 1; slot <= count; slot++)
         {
-            var r = new AirReceiver(slot, UxPlay.NameFor(_settings, slot));
+            var r = new AirReceiver(slot, UxPlay.NameFor(_settings, slot)) { Key = UxPlay.SettingsKey(_settings, slot, audioOnly) };
             var session = UxPlay.Create(_settings, slot, audioOnly, () => r.Ready);
             session.Log += m =>
             {
@@ -209,6 +214,7 @@ public partial class MainWindow
         if (m.Success)
         {
             r.Client = m.Groups[1].Value;
+            _airSelectAgain = false;
             UpdateAirStatus();
             Notify(_settings.Notify.AirPlayClient, "iPhone / iPad connected", $"{r.Client} ({m.Groups[2].Value}) → \"{r.Name}\"");
             if (!_airAudioOnly)
@@ -225,6 +231,7 @@ public partial class MainWindow
     async void OnAirPlayEnded(AirReceiver r, bool unexpected)
     {
         _air.Remove(r);
+        if (_air.Count == 0 && _airStartNext == null) _airSelectAgain = false;
         if (_airRecord && r.EverReady) Notify(_settings.Notify.FileSaved, "AirPlay recording saved", _settings.OutputDir, OpenOutputFolder);
         if (_airStartNext is { } next)
         {
@@ -270,6 +277,22 @@ public partial class MainWindow
             (tail.Length > 0 ? "\n\nLast messages:\n" + tail : "") +
             "\n\nIf it happens again, click \"Copy log\" and send it to the developer.",
             ("Try again", () => _ = StartAirPlay(audioOnly: _airAudioOnly)), ("Copy log", CopyLog));
+    }
+
+    /// <summary>Restarts the receivers when a settings change alters how they run (quality, name, number…).</summary>
+    void ApplyAirPlayChanges()
+    {
+        if (!AirRunning || _airBusy || _airStartNext != null) return;
+        if (_settings.AirPlayPin.Length > 0 && !UxPlay.IsValidPin(_settings.AirPlayPin)) return;   // still typing it
+        if (_air.Count == UxPlay.ReceiverCount(_settings) &&
+            _air.All(r => r.Key == UxPlay.SettingsKey(_settings, r.Slot, _airAudioOnly))) return;
+
+        var connected = _air.FirstOrDefault(r => r.Client != null);
+        Log("AirPlay: settings changed, restarting the receivers with the new settings." +
+            (connected != null ? $" If the mirroring does not resume, select \"{connected.Name}\" again on the iPhone/iPad." : ""));
+        _airSelectAgain = connected != null;
+        _airStartNext = _airAudioOnly;
+        StopAllAir();
     }
 
     void StopAllAir()

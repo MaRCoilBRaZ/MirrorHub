@@ -81,7 +81,14 @@ static class UxPlay
 
     public static bool IsValidPin(string? pin) => pin != null && Regex.IsMatch(pin, @"^\d{4}$") && pin != "0000";
 
-    static IEnumerable<string> Args(Settings s, int slot, bool audioOnly, string receiverDir)
+    /// <summary>
+    /// The options a receiver runs with, to tell whether a settings change needs a restart: the same arguments
+    /// as the launch, without the recording file name.
+    /// </summary>
+    public static string SettingsKey(Settings s, int slot, bool audioOnly) =>
+        string.Join('\n', Args(s, slot, audioOnly, ReceiverDir(slot), forKey: true));
+
+    static IEnumerable<string> Args(Settings s, int slot, bool audioOnly, string receiverDir, bool forKey = false)
     {
         var hasPin = IsValidPin(s.AirPlayPin);
         yield return "-n"; yield return NameFor(s, slot);
@@ -113,9 +120,13 @@ static class UxPlay
         if (hasPin) { yield return "-pin"; yield return s.AirPlayPin; }
         if (s.AirPlayRecord && SupportsRecording())
         {
-            Directory.CreateDirectory(s.OutputDir);
-            // UxPlay appends ".<n>.<format>.mp4".
-            yield return "-mp4"; yield return Path.Combine(s.OutputDir, $"iPhone{(slot > 1 ? "-" + slot : "")}_{DateTime.Now:yyyyMMdd_HHmmss}");
+            yield return "-mp4";
+            if (!forKey)
+            {
+                Directory.CreateDirectory(s.OutputDir);
+                // UxPlay appends ".<n>.<format>.mp4".
+                yield return Path.Combine(s.OutputDir, $"iPhone{(slot > 1 ? "-" + slot : "")}_{DateTime.Now:yyyyMMdd_HHmmss}");
+            }
         }
     }
 

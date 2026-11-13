@@ -84,7 +84,15 @@ static class Scrcpy
         yield return "--audio-dup";
     }
 
-    static IEnumerable<string> MirrorArgs(Device device, MirrorOptions o, string outputDir, string? startApp)
+    /// <summary>
+    /// The options a mirror runs with, to tell whether a settings change needs a restart: the same arguments
+    /// as the launch, without the recording file name and the app to launch.
+    /// </summary>
+    public static string SettingsKey(Device device, MirrorOptions o, bool audioOnly) =>
+        string.Join('\n', audioOnly ? AudioOnlyArgs(device, o) : MirrorArgs(device, o, outputDir: null, startApp: null));
+
+    /// <param name="outputDir">Null only for <see cref="SettingsKey"/>: no recording file is named.</param>
+    static IEnumerable<string> MirrorArgs(Device device, MirrorOptions o, string? outputDir, string? startApp)
     {
         yield return "--serial=" + device.Serial;
         yield return "--window-title=MirrorHub - " + device.Model;
@@ -116,7 +124,7 @@ static class Scrcpy
         if (o.Fullscreen) yield return "--fullscreen";
         if (o.Borderless) yield return "--window-borderless";
         if (startApp != null) yield return "--start-app=" + startApp;
-        if (o.Record) yield return "--record=" + RecordPath(outputDir, device.Model);
+        if (o.Record) yield return outputDir == null ? "--record" : "--record=" + RecordPath(outputDir, device.Model);
     }
 
     static IEnumerable<string> CameraArgs(Device device, CameraOptions c, string outputDir)

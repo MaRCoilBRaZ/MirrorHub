@@ -164,7 +164,7 @@
                             </StackPanel>
 
                             <TextBlock Classes="Hint"
-                                       Text="Changes apply from the next mirroring start (including automatic reconnections). Shortcuts in the mirror window: Alt+F fullscreen · Alt+H home · Alt+B back · Alt+S recent apps · Alt+R rotate · Alt+O phone screen off · Alt+Shift+O on."/>
+                                       Text="Changes apply right away: a running mirror restarts with the new settings (its window reopens). Shortcuts in the mirror window: Alt+F fullscreen · Alt+H home · Alt+B back · Alt+S recent apps · Alt+R rotate · Alt+O phone screen off · Alt+Shift+O on."/>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -254,7 +254,7 @@
                             </StackPanel>
                         </Expander>
 
-                        <TextBlock Classes="Hint" Text="Changes apply from the next receiver start."/>
+                        <TextBlock Classes="Hint" Text="Changes apply right away: a running receiver restarts with the new settings (a connected iPhone/iPad may need to select it again)."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

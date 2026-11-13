@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     readonly Settings _settings = Settings.Load();
     readonly Dictionary<string, WatchedProcess> _sessions = new();   // adb serial -> screen mirror or audio only
     readonly HashSet<string> _audioOnly = new();                      // serials in _sessions that are audio only
+    readonly Dictionary<string, (Device Device, bool AudioOnly, string Key)> _started = new();   // serial -> what the session runs with
+    readonly HashSet<string> _restartWithNewSettings = new();        // serials stopped to start again with the new settings
     readonly Dictionary<string, string> _hwIds = new();              // adb serial -> hardware id
     readonly Dictionary<string, int> _sdks = new();                  // adb serial -> Android API level
     readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(2) };
@@ -59,6 +61,7 @@ public partial class MainWindow : Window
                 RebindAirPlay();
                 SaveSettings();
                 UpdateQualityChoices();
+                QueueApplySettings();
             };
             airResFlyout.Items.Add(mi);
         }
@@ -426,21 +429,7 @@ public partial class MainWindow : Window
         }
 
         try { _settings.Save(); } catch { }
-        var options = _settings.OptionsFor(CachedHwId(d.Serial));
-        // Sound on both needs Android 13+. On older devices the option means "leave the sound on the device".
-        if (options.AudioOnPhoneToo && _sdks.TryGetValue(d.Serial, out var sdk) && sdk < 33)
-        {
-            if (audioOnly)
-            {
-                Log($"{d.Model}: Android older than 13 can't play sound on both, and \"Also keep the sound on the phone\" " +
-                    "is on, so the sound stays on the device. Turn that option off to hear it on the PC.");
-                return false;
-            }
-            options = options.Clone();
-            options.Audio = false;
-            Log($"{d.Model}: Android older than 13 can't play sound on both, so the sound stays on the device " +
-                "(\"Also keep the sound on the phone\" is on).");
-        }
+        if (EffectiveOptions(d, audioOnly, log: true) is not { } options) return false;
         var session = audioOnly ? Scrcpy.CreateAudioOnly(d, options) : Scrcpy.Create(d, options, _settings.OutputDir, startApp);
         session.Log += m => Log($"[{d.Model}] {m}");
         session.Restarting += n =>
@@ -451,13 +440,16 @@ public partial class MainWindow : Window
         {
             _sessions.Remove(d.Serial);
             _audioOnly.Remove(d.Serial);
+            _started.Remove(d.Serial);
+            if (options.Record && !audioOnly) Notify(_settings.Notify.FileSaved, "Recording saved", _settings.OutputDir, OpenOutputFolder);
+            if (_restartWithNewSettings.Remove(d.Serial) && StartMirror(d, audioOnly: audioOnly)) return;
             if (unexpected) Notify(_settings.Notify.MirrorEvents, audioOnly ? "Phone audio stopped" : "Mirroring stopped",
                 $"{d.Model}: could not reconnect.");
-            if (options.Record && !audioOnly) Notify(_settings.Notify.FileSaved, "Recording saved", _settings.OutputDir, OpenOutputFolder);
             InvalidateTray();
             _ = RefreshDevices();
         });
         _sessions[d.Serial] = session;
+        _started[d.Serial] = (d, audioOnly, Scrcpy.SettingsKey(d, options, audioOnly));
         if (audioOnly)
         {
             _audioOnly.Add(d.Serial);
@@ -467,6 +459,41 @@ public partial class MainWindow : Window
         InvalidateTray();
         _ = RefreshDevices();
         return true;
+    }
+
+    /// <summary>The options a mirror of this device starts with, or null when it must not start.</summary>
+    MirrorOptions? EffectiveOptions(Device d, bool audioOnly, bool log)
+    {
+        var options = _settings.OptionsFor(CachedHwId(d.Serial));
+        // Sound on both needs Android 13+. On older devices the option means "leave the sound on the device".
+        if (options.AudioOnPhoneToo && _sdks.TryGetValue(d.Serial, out var sdk) && sdk < 33)
+        {
+            if (audioOnly)
+            {
+                if (log)
+                    Log($"{d.Model}: Android older than 13 can't play sound on both, and \"Also keep the sound on the phone\" " +
+                        "is on, so the sound stays on the device. Turn that option off to hear it on the PC.");
+                return null;
+            }
+            options = options.Clone();
+            options.Audio = false;
+            if (log)
+                Log($"{d.Model}: Android older than 13 can't play sound on both, so the sound stays on the device " +
+                    "(\"Also keep the sound on the phone\" is on).");
+        }
+        return options;
+    }
+
+    /// <summary>Restarts the running mirrors whose settings changed since they started.</summary>
+    void ApplyAndroidChanges()
+    {
+        foreach (var (serial, (d, audioOnly, key)) in _started.ToList())
+        {
+            var now = EffectiveOptions(d, audioOnly, log: false) is { } o ? Scrcpy.SettingsKey(d, o, audioOnly) : null;
+            if (now == key || !_sessions.TryGetValue(serial, out var session) || !_restartWithNewSettings.Add(serial)) continue;
+            Log($"{d.Model}: settings changed, restarting {(audioOnly ? "audio only" : "the mirror")} with the new settings.");
+            session.Stop();
+        }
     }
 
     public void ToggleAudioOnly(Device? d = null)
